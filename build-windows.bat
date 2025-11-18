@@ -67,18 +67,20 @@ REM Create a temporary lib.rs that excludes macOS/Linux-specific modules
 echo 📦 Creating Windows-specific lib.rs...
 
 (
-echo pub mod console_app;
-echo pub mod process_monitor;
-echo pub mod types;
+echo pub mod cache;
 echo pub mod cli;
+echo pub mod console_app;
+echo pub mod endpoint_monitor;
+echo pub mod file_monitor;
+echo pub mod port_guard;
+echo pub mod preset_manager;
+echo pub mod process_monitor;
+echo pub mod scripting;
+echo pub mod security_audit;
 echo pub mod smart_filter;
 echo pub mod system_monitor;
-echo pub mod port_guard;
-echo pub mod security_audit;
-echo pub mod endpoint_monitor;
-echo pub mod scripting;
-echo pub mod file_monitor;
-echo pub mod cache;
+echo pub mod types;
+echo pub mod update_check;
 ) > src/lib.windows.tmp.rs
 
 REM Backup current files
