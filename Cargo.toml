@@ -8,6 +8,10 @@ license = "FSL-1.1-MIT"
 repository = "https://github.com/treadiehq/port-kill"
 build = "build.rs"
 
+[lib]
+name = "port_kill"
+path = "src/lib.rs"
+
 [[bin]]
 name = "port-kill"
 path = "src/main.rs"
