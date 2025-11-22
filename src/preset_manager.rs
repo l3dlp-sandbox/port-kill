@@ -116,7 +116,9 @@ pub struct PresetManager {
 impl PresetManager {
     /// Create a new preset manager
     pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| "/tmp".to_string());
         let config_path = format!("{}/.port-kill/presets.json", home);
 
         Self {

@@ -15,7 +15,7 @@ use port_kill::cache::{
 };
 use port_kill::update_check;
 #[cfg(target_os = "macos")]
-use port_kill::{app::PortKillApp, cli::Args};
+use port_kill::{app::PortKillApp, cli::Args, console_app::ConsolePortKillApp};
 
 #[cfg(target_os = "macos")]
 fn main() -> Result<()> {
@@ -189,7 +189,100 @@ fn main() -> Result<()> {
         }
     }
 
-    // Create and run the application
+    // Handle new lifecycle management features
+    // These run in console mode even from the GUI binary
+    
+    if let Some(port) = args.restart {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.restart_port(port).await
+        })?;
+        return Ok(());
+    }
+
+    if args.show_restart_history {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.show_restart_history().await
+        })?;
+        return Ok(());
+    }
+
+    if let Some(port) = args.clear_restart {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.clear_restart_history(port).await
+        })?;
+        return Ok(());
+    }
+
+    if args.detect {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.detect_services().await
+        })?;
+        return Ok(());
+    }
+
+    if let Some(service_name) = args.start.clone() {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.start_service(&service_name).await
+        })?;
+        return Ok(());
+    }
+
+    if args.init_config {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.init_config().await
+        })?;
+        return Ok(());
+    }
+
+    if args.up {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.orchestrate_up().await
+        })?;
+        return Ok(());
+    }
+
+    if args.down {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.orchestrate_down().await
+        })?;
+        return Ok(());
+    }
+
+    if let Some(service_name) = args.restart_service.clone() {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.orchestrate_restart(&service_name).await
+        })?;
+        return Ok(());
+    }
+
+    if args.status {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let app = ConsolePortKillApp::new(args)?;
+            app.orchestrate_status().await
+        })?;
+        return Ok(());
+    }
+
+    // Create and run the application (GUI mode)
     let app = PortKillApp::new(args)?;
     app.run()?;
 
@@ -334,6 +427,68 @@ async fn main() -> Result<()> {
 
     info!("Starting Port Kill application on Windows...");
     info!("Monitoring: {}", args.get_port_description());
+
+    // Handle new lifecycle management features
+    
+    if let Some(port) = args.restart {
+        let app = ConsolePortKillApp::new(args)?;
+        app.restart_port(port).await?;
+        return Ok(());
+    }
+
+    if args.show_restart_history {
+        let app = ConsolePortKillApp::new(args)?;
+        app.show_restart_history().await?;
+        return Ok(());
+    }
+
+    if let Some(port) = args.clear_restart {
+        let app = ConsolePortKillApp::new(args)?;
+        app.clear_restart_history(port).await?;
+        return Ok(());
+    }
+
+    if args.detect {
+        let app = ConsolePortKillApp::new(args)?;
+        app.detect_services().await?;
+        return Ok(());
+    }
+
+    if let Some(service_name) = args.start.clone() {
+        let app = ConsolePortKillApp::new(args)?;
+        app.start_service(&service_name).await?;
+        return Ok(());
+    }
+
+    if args.init_config {
+        let app = ConsolePortKillApp::new(args)?;
+        app.init_config().await?;
+        return Ok(());
+    }
+
+    if args.up {
+        let app = ConsolePortKillApp::new(args)?;
+        app.orchestrate_up().await?;
+        return Ok(());
+    }
+
+    if args.down {
+        let app = ConsolePortKillApp::new(args)?;
+        app.orchestrate_down().await?;
+        return Ok(());
+    }
+
+    if let Some(service_name) = args.restart_service.clone() {
+        let app = ConsolePortKillApp::new(args)?;
+        app.orchestrate_restart(&service_name).await?;
+        return Ok(());
+    }
+
+    if args.status {
+        let app = ConsolePortKillApp::new(args)?;
+        app.orchestrate_status().await?;
+        return Ok(());
+    }
 
     // Create and run the console application
     let app = ConsolePortKillApp::new(args)?;
@@ -480,6 +635,68 @@ async fn main() -> Result<()> {
 
     info!("Starting Port Kill application on Linux...");
     info!("Monitoring: {}", args.get_port_description());
+
+    // Handle new lifecycle management features
+    
+    if let Some(port) = args.restart {
+        let app = ConsolePortKillApp::new(args)?;
+        app.restart_port(port).await?;
+        return Ok(());
+    }
+
+    if args.show_restart_history {
+        let app = ConsolePortKillApp::new(args)?;
+        app.show_restart_history().await?;
+        return Ok(());
+    }
+
+    if let Some(port) = args.clear_restart {
+        let app = ConsolePortKillApp::new(args)?;
+        app.clear_restart_history(port).await?;
+        return Ok(());
+    }
+
+    if args.detect {
+        let app = ConsolePortKillApp::new(args)?;
+        app.detect_services().await?;
+        return Ok(());
+    }
+
+    if let Some(service_name) = args.start.clone() {
+        let app = ConsolePortKillApp::new(args)?;
+        app.start_service(&service_name).await?;
+        return Ok(());
+    }
+
+    if args.init_config {
+        let app = ConsolePortKillApp::new(args)?;
+        app.init_config().await?;
+        return Ok(());
+    }
+
+    if args.up {
+        let app = ConsolePortKillApp::new(args)?;
+        app.orchestrate_up().await?;
+        return Ok(());
+    }
+
+    if args.down {
+        let app = ConsolePortKillApp::new(args)?;
+        app.orchestrate_down().await?;
+        return Ok(());
+    }
+
+    if let Some(service_name) = args.restart_service.clone() {
+        let app = ConsolePortKillApp::new(args)?;
+        app.orchestrate_restart(&service_name).await?;
+        return Ok(());
+    }
+
+    if args.status {
+        let app = ConsolePortKillApp::new(args)?;
+        app.orchestrate_status().await?;
+        return Ok(());
+    }
 
     // Create and run the console application
     let app = ConsolePortKillApp::new(args)?;

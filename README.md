@@ -1,6 +1,12 @@
 # Port Kill
 
-Port Kill helps you find and free ports blocking your dev work, plus manage development caches. It works on macOS, Linux, and Windows, locally or over SSH with a simple CLI and status bar.
+Port Kill helps you find and free ports blocking your dev work, plus manage development caches and orchestrate services. It works on macOS, Linux, and Windows, locally or over SSH with a simple CLI and status bar.
+
+**Two Binaries, Full Feature Parity:**
+- `port-kill` - GUI status bar app (macOS only) + full CLI
+- `port-kill-console` - Pure CLI version (all platforms)
+
+Both binaries support all features including smart restart, service detection, and orchestration.
 
 ![Port Kill Status Bar Icon](image-short.png)
 
@@ -9,7 +15,6 @@ Port Kill helps you find and free ports blocking your dev work, plus manage deve
 Join our Discord community for discussions, support, and updates:
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20our%20community-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/KqdBcqRk5E)
-
 
 ## Install
 
@@ -55,7 +60,27 @@ port-kill --list
 # Confirm before killing
 port-kill 3000 --safe
 
-# Cache management (NEW!)
+# Smart Restart - Kill and automatically restart a process (NEW!)
+port-kill --restart 3000
+
+# Show what can be restarted
+port-kill --show-restart-history
+
+# Service Detection & Start (NEW!)
+port-kill --detect                    # Discover npm scripts, docker-compose, etc.
+port-kill --start npm:dev             # Start a detected service
+
+# Guard mode with auto-restart (NEW!)
+port-kill --guard 3000 --guard-auto-restart
+
+# Orchestration - Manage multiple services (NEW!)
+port-kill --init-config              # Create .port-kill.yaml config
+port-kill --up                       # Start all services from config
+port-kill --down                     # Stop all services
+port-kill --status                   # Check service status
+port-kill --restart-service frontend # Restart specific service
+
+# Cache management
 port-kill cache --list
 port-kill cache --clean --safe-delete
 port-kill cache --doctor
@@ -67,11 +92,206 @@ port-kill --check-updates
 port-kill --self-update
 ```
 
+## Smart Restart & Service Management (NEW!)
+
+Port Kill now intelligently manages your development server lifecycle:
+
+### Smart Restart
+Automatically restarts processes using their original startup commands:
+
+```bash
+# Kill and restart a process (saves restart info automatically)
+port-kill 3000                    # Kill process on port 3000
+port-kill --restart 3000          # Restart it with saved command
+
+# View restart history
+port-kill --show-restart-history  # See all restartable ports
+
+# Clear restart info
+port-kill --clear-restart 3000    # Remove saved restart info
+```
+
+### Service Detection & Start
+Automatically discover and start services from your project:
+
+```bash
+# Discover available services
+port-kill --detect
+
+# Found services examples:
+#   npm:dev - npm run dev (Node.js)
+#   npm:start - npm run start (Node.js)
+#   docker:web - Docker Compose service: web
+#   python:app.py - Python app: app.py
+
+# Start a discovered service
+port-kill --start npm:dev
+port-kill --start docker:web
+```
+
+**Supported project types:**
+- **npm/yarn/pnpm** - Detects package.json scripts
+- **Docker Compose** - Detects docker-compose.yml services
+- **Procfile** - Detects Procfile processes
+- **Python** - Detects app.py, manage.py, etc.
+
+### Guard Mode with Auto-Restart
+Keep your services running automatically:
+
+```bash
+# Guard a port and auto-restart if process dies
+port-kill --guard 3000 --guard-auto-restart
+
+# Works with reservations
+port-kill --guard-mode --guard-auto-restart \
+  --reserve-port 3000 \
+  --project-name "my-app" \
+  --process-name "npm"
+```
+
+## Service Orchestration (NEW!)
+
+Manage multiple services together with a simple YAML configuration file.
+
+### Quick Start
+
+```bash
+# 1. Create a configuration file
+port-kill --init-config
+
+# 2. Edit .port-kill.yaml to define your services
+# (see example below)
+
+# 3. Start all services
+port-kill --up
+
+# 4. Check status
+port-kill --status
+
+# 5. Stop all services
+port-kill --down
+```
+
+### Configuration Example
+
+Create `.port-kill.yaml` in your project root:
+
+```yaml
+version: "1"
+
+# Global environment variables
+env:
+  NODE_ENV: development
+  DEBUG: "true"
+
+services:
+  # Frontend service
+  frontend:
+    command: npm run dev
+    port: 3000
+    dir: ./frontend
+    startup_delay: 2
+    env:
+      PORT: "3000"
+  
+  # Backend API service
+  backend:
+    command: npm run start
+    port: 8000
+    dir: ./backend
+    depends_on:
+      - database
+    env:
+      PORT: "8000"
+      DATABASE_URL: postgres://localhost:5432/myapp
+  
+  # Database service
+  database:
+    command: docker-compose up database
+    port: 5432
+    startup_delay: 5
+```
+
+### Orchestration Commands
+
+```bash
+# Initialize configuration
+port-kill --init-config
+
+# Start all services (respects dependencies)
+port-kill --up
+
+# Stop all running services
+port-kill --down
+
+# Restart a specific service
+port-kill --restart-service backend
+
+# Check status of all services
+port-kill --status
+
+# Use custom config file
+port-kill --config-file my-config.yaml --up
+```
+
+### Configuration Options
+
+**Service Fields:**
+- `command` - Command to run the service (required)
+- `port` - Port the service runs on (optional)
+- `dir` - Working directory for the service (optional)
+- `env` - Service-specific environment variables (optional)
+- `depends_on` - List of services to start first (optional)
+- `startup_delay` - Seconds to wait after starting (optional)
+- `healthcheck` - Command to check service health (optional)
+
+**Global Fields:**
+- `version` - Config version (optional)
+- `env` - Environment variables for all services (optional)
+- `services` - Map of service definitions (required)
+
+### Dependency Management
+
+Services start in dependency order:
+
+```yaml
+services:
+  api:
+    command: npm start
+    depends_on:
+      - database
+      - redis
+  
+  database:
+    command: docker-compose up database
+  
+  redis:
+    command: redis-server
+```
+
+Start order: `database` → `redis` → `api`
+
 ### CLI quick reference
 
 ```bash
 # Positional ports imply clearPort on each
 port-kill <port> [<port> ...]
+
+# Smart Restart & Lifecycle (NEW!)
+--restart <port>              # Restart process on port using saved command
+--show-restart-history        # Show all ports that can be restarted
+--clear-restart <port>        # Clear saved restart info for port
+--detect                      # Detect available services in current dir
+--start <name>                # Start a detected service (e.g., npm:dev)
+--guard-auto-restart          # Auto-restart processes in guard mode
+
+# Service Orchestration (NEW!)
+--init-config                 # Create sample .port-kill.yaml config
+--up                          # Start all services from config
+--down                        # Stop all running services
+--restart-service <name>      # Restart specific service
+--status                      # Show status of all configured services
+--config-file <path>          # Use custom config file (default: .port-kill.yaml)
 
 # Thin aliases
 --clear <port>          # clearPort(port)

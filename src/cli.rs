@@ -111,9 +111,17 @@ pub struct Args {
     #[arg(long, value_delimiter = ',')]
     pub kill_project: Option<Vec<String>>,
 
-    /// Restart processes (kill and wait for them to restart)
+    /// Restart processes on specific port (kill and restart with saved command)
     #[arg(long)]
-    pub restart: bool,
+    pub restart: Option<u16>,
+    
+    /// Show restart history (list ports that can be restarted)
+    #[arg(long)]
+    pub show_restart_history: bool,
+    
+    /// Clear restart history for a specific port
+    #[arg(long)]
+    pub clear_restart: Option<u16>,
 
     /// Show process tree (parent-child relationships)
     #[arg(long)]
@@ -319,6 +327,42 @@ pub struct Args {
     /// Cache management subcommand
     #[command(subcommand)]
     pub cache: Option<CacheSubcommand>,
+    
+    /// Detect available services (npm scripts, docker-compose, etc.)
+    #[arg(long)]
+    pub detect: bool,
+    
+    /// Start a detected service by name (e.g., "npm:dev", "docker:web")
+    #[arg(long)]
+    pub start: Option<String>,
+    
+    /// Auto-restart in guard mode (restart allowed process if it dies)
+    #[arg(long)]
+    pub guard_auto_restart: bool,
+    
+    /// Start all services from config file (.port-kill.yaml)
+    #[arg(long)]
+    pub up: bool,
+    
+    /// Stop all running services from config
+    #[arg(long)]
+    pub down: bool,
+    
+    /// Restart a service from config
+    #[arg(long)]
+    pub restart_service: Option<String>,
+    
+    /// Show status of all configured services
+    #[arg(long)]
+    pub status: bool,
+    
+    /// Path to orchestration config file
+    #[arg(long, default_value = ".port-kill.yaml")]
+    pub config_file: String,
+    
+    /// Create a sample .port-kill.yaml configuration file
+    #[arg(long)]
+    pub init_config: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -665,7 +709,9 @@ impl Args {
     /// Get the expanded reservation file path
     pub fn get_reservation_file_path(&self) -> String {
         if self.reservation_file.starts_with("~/") {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| "/tmp".to_string());
             self.reservation_file.replace("~/", &format!("{}/", home))
         } else {
             self.reservation_file.clone()
@@ -684,7 +730,9 @@ impl Args {
     pub fn get_baseline_file_path(&self) -> Option<String> {
         self.baseline_file.as_ref().map(|path| {
             if path.starts_with("~/") {
-                let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                let home = std::env::var("HOME")
+                    .or_else(|_| std::env::var("USERPROFILE"))
+                    .unwrap_or_else(|_| "/tmp".to_string());
                 path.replace("~/", &format!("{}/", home))
             } else {
                 path.clone()
@@ -834,7 +882,9 @@ mod tests {
             kill_all: false,
             kill_group: None,
             kill_project: None,
-            restart: false,
+            restart: None,
+            show_restart_history: false,
+            clear_restart: None,
             show_tree: false,
             json: false,
             reset: false,
@@ -886,6 +936,15 @@ mod tests {
             check_updates: false,
             self_update: false,
             cache: None,
+            detect: false,
+            start: None,
+            guard_auto_restart: false,
+            up: false,
+            down: false,
+            restart_service: None,
+            status: false,
+            config_file: ".port-kill.yaml".to_string(),
+            init_config: false,
         }
     }
 

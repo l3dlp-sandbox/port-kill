@@ -1,3 +1,4 @@
+use crate::restart_manager::RestartManager;
 use crate::smart_filter::{FilterStats, SmartFilter};
 use crate::system_monitor::SystemMonitor;
 use crate::types::{ProcessHistory, ProcessHistoryEntry, ProcessInfo, ProcessUpdate};
@@ -25,6 +26,7 @@ pub struct ProcessMonitor {
     smart_filter: Option<SmartFilter>,
     system_monitor: SystemMonitor,
     performance_enabled: bool,
+    restart_manager: RestartManager,
 }
 
 impl ProcessMonitor {
@@ -45,6 +47,7 @@ impl ProcessMonitor {
             smart_filter: None,
             system_monitor: SystemMonitor::new(),
             performance_enabled: false,
+            restart_manager: RestartManager::new().unwrap_or_default(),
         })
     }
 
@@ -66,6 +69,7 @@ impl ProcessMonitor {
             smart_filter: Some(smart_filter),
             system_monitor: SystemMonitor::new(),
             performance_enabled: false,
+            restart_manager: RestartManager::new().unwrap_or_default(),
         })
     }
 
@@ -88,6 +92,7 @@ impl ProcessMonitor {
             smart_filter,
             system_monitor: SystemMonitor::new(),
             performance_enabled,
+            restart_manager: RestartManager::new().unwrap_or_default(),
         })
     }
 
@@ -161,7 +166,9 @@ impl ProcessMonitor {
             kill_all: false,
             kill_group: None,
             kill_project: None,
-            restart: false,
+            restart: None,
+            show_restart_history: false,
+            clear_restart: None,
             show_tree: false,
             json: false,
             reset: false,
@@ -213,6 +220,15 @@ impl ProcessMonitor {
             check_updates: false,
             self_update: false,
             cache: None,
+            detect: false,
+            start: None,
+            guard_auto_restart: false,
+            up: false,
+            down: false,
+            restart_service: None,
+            status: false,
+            config_file: ".port-kill.yaml".to_string(),
+            init_config: false,
         };
         
         let (_count, mut processes) = get_processes_on_ports(&self.ports_to_monitor, &args);
@@ -809,6 +825,19 @@ impl ProcessMonitor {
             .find(|p| p.pid == pid)
             .cloned();
 
+        // Save to restart manager if we have command line and working directory
+        if let Some(ref proc_info) = process_info {
+            if let (Some(ref cmd_line), Some(ref work_dir)) = (&proc_info.command_line, &proc_info.working_directory) {
+                if let Err(e) = self.restart_manager.save_process_for_restart(
+                    proc_info.port,
+                    cmd_line,
+                    work_dir
+                ) {
+                    warn!("Failed to save restart info for port {}: {}", proc_info.port, e);
+                }
+            }
+        }
+
         #[cfg(not(target_os = "windows"))]
         {
             // Check if this is a Docker container process (Unix-like systems only)
@@ -1026,6 +1055,41 @@ impl ProcessMonitor {
     /// Get ports to monitor
     pub fn get_ports_to_monitor(&self) -> &Vec<u16> {
         &self.ports_to_monitor
+    }
+
+    /// Restart a process on a specific port
+    pub async fn restart_process_on_port(&mut self, port: u16) -> Result<()> {
+        info!("Attempting to restart process on port {}", port);
+
+        // First, kill any existing process on the port
+        if let Some(process_info) = self.current_processes.get(&port).cloned() {
+            self.kill_process_with_context(process_info.pid, "restart", true).await?;
+            
+            // Wait a moment for the port to be released
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+        }
+
+        // Now restart using saved command
+        match self.restart_manager.restart_port(port) {
+            Ok(child) => {
+                info!("Successfully restarted process on port {} with PID {}", port, child.id());
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to restart process on port {}: {}", port, e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Get restart manager reference
+    pub fn get_restart_manager(&self) -> &RestartManager {
+        &self.restart_manager
+    }
+
+    /// Get mutable restart manager reference
+    pub fn get_restart_manager_mut(&mut self) -> &mut RestartManager {
+        &mut self.restart_manager
     }
 
     /// Enhance process name with better context and descriptions

@@ -75,6 +75,7 @@ impl ConsolePortKillApp {
                 process_monitor.clone(),
             );
             daemon.set_process_interception(args.intercept_commands);
+            daemon.set_auto_restart(args.guard_auto_restart);
             Some(Arc::new(daemon))
         } else {
             None
@@ -1603,6 +1604,332 @@ impl ConsolePortKillApp {
             println!("   New Processes: {}", baseline.new_processes.len());
             println!("   Removed Processes: {}", baseline.removed_processes.len());
             println!("   Changed Processes: {}", baseline.changed_processes.len());
+            println!();
+        }
+
+        Ok(())
+    }
+
+    /// Restart a specific port using saved restart information
+    pub async fn restart_port(&self, port: u16) -> Result<()> {
+        println!("🔄 Restarting process on port {}...", port);
+
+        let mut monitor = self.process_monitor.lock().await;
+        
+        // Check if we have restart info for this port
+        if !monitor.get_restart_manager().can_restart(port) {
+            println!("❌ No restart information available for port {}", port);
+            println!("💡 Tip: Kill a process first to save its restart information");
+            return Ok(());
+        }
+
+        // Show what we're going to restart
+        if let Some(restart_info) = monitor.get_restart_manager().get_restart_info(port) {
+            println!("   Command: {:?}", restart_info.command.join(" "));
+            println!("   Working Directory: {}", restart_info.working_directory);
+        }
+
+        // Perform the restart
+        match monitor.restart_process_on_port(port).await {
+            Ok(()) => {
+                println!("✅ Process on port {} restarted successfully", port);
+            }
+            Err(e) => {
+                println!("❌ Failed to restart process on port {}: {}", port, e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Show restart history
+    pub async fn show_restart_history(&self) -> Result<()> {
+        let monitor = self.process_monitor.lock().await;
+        let restart_manager = monitor.get_restart_manager();
+        let restartable_ports = restart_manager.list_restartable_ports();
+
+        if restartable_ports.is_empty() {
+            println!("ℹ️  No processes available for restart");
+            println!("💡 Tip: Kill processes with verbose mode (-v) to save restart information");
+            return Ok(());
+        }
+
+        println!("📋 RESTART HISTORY");
+        println!("   {} port(s) can be restarted:", restartable_ports.len());
+        println!();
+
+        for port in restartable_ports {
+            if let Some(restart_info) = restart_manager.get_restart_info(port) {
+                println!("   Port {}", port);
+                println!("      Command: {}", restart_info.command.join(" "));
+                println!("      Working Dir: {}", restart_info.working_directory);
+                println!("      Last Restarted: {}", format_time_ago(restart_info.last_restarted));
+                println!();
+            }
+        }
+
+        println!("💡 Use --restart <port> to restart a specific port");
+        
+        Ok(())
+    }
+
+    /// Clear restart history for a specific port
+    pub async fn clear_restart_history(&self, port: u16) -> Result<()> {
+        let mut monitor = self.process_monitor.lock().await;
+        let restart_manager = monitor.get_restart_manager_mut();
+        
+        match restart_manager.clear_port(port) {
+            Ok(()) => {
+                println!("✅ Cleared restart history for port {}", port);
+            }
+            Err(e) => {
+                println!("❌ Failed to clear restart history: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Detect available services
+    pub async fn detect_services(&self) -> Result<()> {
+        use crate::service_detector::ServiceDetector;
+
+        println!("🔍 Detecting available services...");
+        println!();
+
+        let detector = ServiceDetector::new();
+        let services = detector.discover_services()?;
+
+        if services.is_empty() {
+            println!("ℹ️  No services detected in current directory");
+            println!("💡 Tip: Run this command from a project directory containing:");
+            println!("   • package.json (npm scripts)");
+            println!("   • docker-compose.yml (Docker services)");
+            println!("   • Procfile (Procfile processes)");
+            println!("   • app.py/manage.py (Python apps)");
+            return Ok(());
+        }
+
+        println!("📋 DETECTED SERVICES");
+        println!("   Found {} service(s):", services.len());
+        println!();
+
+        for service in &services {
+            println!("   {} - {}", service.name, service.description);
+            if let Some(port) = service.inferred_port {
+                println!("      Inferred Port: {}", port);
+            }
+            println!("      Working Dir: {}", service.working_directory.display());
+            println!();
+        }
+
+        println!("💡 Use --start <name> to start a service (e.g., --start npm:dev)");
+
+        Ok(())
+    }
+
+    /// Start a detected service
+    pub async fn start_service(&self, service_name: &str) -> Result<()> {
+        use crate::service_detector::ServiceDetector;
+
+        println!("🚀 Starting service: {}...", service_name);
+
+        let detector = ServiceDetector::new();
+        let services = detector.discover_services()?;
+
+        // Find the service
+        let service = services.iter().find(|s| s.name == service_name);
+
+        if service.is_none() {
+            println!("❌ Service '{}' not found", service_name);
+            println!("💡 Use --detect to list available services");
+            return Ok(());
+        }
+
+        let service = service.unwrap();
+
+        println!("   Starting: {}", service.description);
+        if let Some(port) = service.inferred_port {
+            println!("   Expected Port: {}", port);
+        }
+        println!();
+
+        match detector.start_service(service) {
+            Ok(child) => {
+                println!("✅ Service started successfully with PID {}", child.id());
+                println!("💡 The service is now running in the background");
+            }
+            Err(e) => {
+                println!("❌ Failed to start service: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Initialize a sample configuration file
+    pub async fn init_config(&self) -> Result<()> {
+        use crate::orchestrator::create_sample_config;
+        use std::path::Path;
+
+        let config_path = Path::new(&self.args.config_file);
+
+        if config_path.exists() {
+            println!("❌ Configuration file already exists: {}", config_path.display());
+            println!("💡 Delete it first or use a different --config-file path");
+            return Ok(());
+        }
+
+        create_sample_config(config_path)?;
+        println!("✅ Created sample configuration file: {}", config_path.display());
+        println!();
+        println!("📝 Edit the file to configure your services, then run:");
+        println!("   port-kill --up     # Start all services");
+        println!("   port-kill --down   # Stop all services");
+        println!("   port-kill --status # Check service status");
+
+        Ok(())
+    }
+
+    /// Start all services from config
+    pub async fn orchestrate_up(&self) -> Result<()> {
+        use crate::orchestrator::Orchestrator;
+        use std::path::Path;
+
+        let config_path = Path::new(&self.args.config_file);
+
+        if !config_path.exists() {
+            println!("❌ Configuration file not found: {}", config_path.display());
+            println!("💡 Create one with: port-kill --init-config");
+            return Ok(());
+        }
+
+        println!("🚀 Starting services from {}...", config_path.display());
+        println!();
+
+        let mut orchestrator = Orchestrator::load(config_path)?;
+
+        match orchestrator.start_all().await {
+            Ok(()) => {
+                println!();
+                println!("✅ All services started successfully!");
+                println!();
+                self.show_orchestrator_status(&orchestrator).await?;
+            }
+            Err(e) => {
+                println!("❌ Failed to start services: {}", e);
+                // Try to stop any services that were started
+                let _ = orchestrator.stop_all().await;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Stop all services from config
+    pub async fn orchestrate_down(&self) -> Result<()> {
+        use crate::orchestrator::Orchestrator;
+        use std::path::Path;
+
+        let config_path = Path::new(&self.args.config_file);
+
+        if !config_path.exists() {
+            println!("❌ Configuration file not found: {}", config_path.display());
+            return Ok(());
+        }
+
+        println!("🛑 Stopping services from {}...", config_path.display());
+        println!();
+
+        let mut orchestrator = Orchestrator::load(config_path)?;
+
+        match orchestrator.stop_all().await {
+            Ok(()) => {
+                println!("✅ All services stopped successfully!");
+            }
+            Err(e) => {
+                println!("❌ Failed to stop services: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Restart a specific service from config
+    pub async fn orchestrate_restart(&self, service_name: &str) -> Result<()> {
+        use crate::orchestrator::Orchestrator;
+        use std::path::Path;
+
+        let config_path = Path::new(&self.args.config_file);
+
+        if !config_path.exists() {
+            println!("❌ Configuration file not found: {}", config_path.display());
+            return Ok(());
+        }
+
+        println!("🔄 Restarting service '{}'...", service_name);
+
+        let mut orchestrator = Orchestrator::load(config_path)?;
+
+        match orchestrator.restart_service(service_name).await {
+            Ok(()) => {
+                println!("✅ Service '{}' restarted successfully!", service_name);
+            }
+            Err(e) => {
+                println!("❌ Failed to restart service '{}': {}", service_name, e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Show status of all configured services
+    pub async fn orchestrate_status(&self) -> Result<()> {
+        use crate::orchestrator::Orchestrator;
+        use std::path::Path;
+
+        let config_path = Path::new(&self.args.config_file);
+
+        if !config_path.exists() {
+            println!("❌ Configuration file not found: {}", config_path.display());
+            println!("💡 Create one with: port-kill --init-config");
+            return Ok(());
+        }
+
+        let orchestrator = Orchestrator::load(config_path)?;
+
+        self.show_orchestrator_status(&orchestrator).await?;
+
+        Ok(())
+    }
+
+    /// Show orchestrator status (helper method)
+    async fn show_orchestrator_status(&self, orchestrator: &crate::orchestrator::Orchestrator) -> Result<()> {
+        let statuses = orchestrator.get_status();
+
+        if statuses.is_empty() {
+            println!("ℹ️  No services configured");
+            return Ok(());
+        }
+
+        println!("📋 SERVICE STATUS");
+        println!();
+
+        for status in statuses {
+            let status_icon = if status.running { "✅" } else { "⭕" };
+            let status_text = if status.running { "RUNNING" } else { "STOPPED" };
+
+            println!("   {} {} - {}", status_icon, status.name, status_text);
+            println!("      Command: {}", status.command);
+
+            if let Some(port) = status.port {
+                println!("      Port: {}", port);
+            }
+
+            if let Some(pid) = status.pid {
+                println!("      PID: {}", pid);
+            }
+
             println!();
         }
 

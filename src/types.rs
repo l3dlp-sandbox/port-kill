@@ -706,7 +706,9 @@ impl ProcessHistory {
     }
 
     pub fn get_history_file_path() -> String {
-        let home_dir = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let home_dir = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
         format!("{}/.port-kill-history.json", home_dir)
     }
 

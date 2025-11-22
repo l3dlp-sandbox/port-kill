@@ -20,6 +20,7 @@ pub struct PortGuardDaemon {
     reservations: Arc<Mutex<HashMap<u16, PortReservation>>>,
     reservation_file: String,
     auto_resolve: bool,
+    auto_restart: bool,
     conflicts_resolved: Arc<Mutex<usize>>,
     is_running: Arc<Mutex<bool>>,
     process_monitor: Arc<Mutex<ProcessMonitor>>,
@@ -40,12 +41,18 @@ impl PortGuardDaemon {
             reservations: Arc::new(Mutex::new(HashMap::new())),
             reservation_file,
             auto_resolve,
+            auto_restart: false,
             conflicts_resolved: Arc::new(Mutex::new(0)),
             is_running: Arc::new(Mutex::new(false)),
             process_monitor,
             intercepted_commands: Arc::new(Mutex::new(HashSet::new())),
             process_interception_enabled: true,
         }
+    }
+
+    /// Enable or disable auto-restart
+    pub fn set_auto_restart(&mut self, enabled: bool) {
+        self.auto_restart = enabled;
     }
 
     /// Start the Port Guard daemon
@@ -90,6 +97,13 @@ impl PortGuardDaemon {
             // Check for port conflicts every 2 seconds
             if let Err(e) = self.check_port_conflicts().await {
                 warn!("Error checking port conflicts: {}", e);
+            }
+
+            // Check for dead processes and restart them if auto-restart is enabled
+            if self.auto_restart {
+                if let Err(e) = self.check_and_restart_dead_processes().await {
+                    warn!("Error checking/restarting dead processes: {}", e);
+                }
             }
 
             // Clean up expired reservations
@@ -143,6 +157,56 @@ impl PortGuardDaemon {
             }
         }
 
+        Ok(())
+    }
+
+    /// Check for dead processes and restart them
+    async fn check_and_restart_dead_processes(&self) -> Result<()> {
+        let reservations = self.reservations.lock().await;
+        let mut monitor = self.process_monitor.lock().await;
+        
+        // Get currently running processes
+        let processes = monitor.scan_processes().await?;
+        
+        // Check each watched port with a reservation
+        for (port, reservation) in reservations.iter() {
+            if !self.watched_ports.contains(port) {
+                continue;
+            }
+            
+            // Check if this port has a running process
+            let has_process = processes.contains_key(port);
+            
+            if !has_process {
+                // Port is free but should have a process - try to restart it
+                let restart_manager = monitor.get_restart_manager();
+                
+                if restart_manager.can_restart(*port) {
+                    let port_to_restart = *port;
+                    let project_name = reservation.project_name.clone();
+                    
+                    info!(
+                        "🔄 Detected dead process on port {} (reserved for {}), restarting...",
+                        port_to_restart, project_name
+                    );
+                    
+                    // Drop the locks before restarting to avoid deadlock
+                    drop(monitor);
+                    drop(reservations);
+                    
+                    // Restart the process
+                    let mut monitor_mut = self.process_monitor.lock().await;
+                    if let Err(e) = monitor_mut.restart_process_on_port(port_to_restart).await {
+                        warn!("Failed to auto-restart process on port {}: {}", port_to_restart, e);
+                    } else {
+                        info!("✅ Successfully auto-restarted process on port {}", port_to_restart);
+                    }
+                    
+                    return Ok(());
+                }
+            }
+        }
+        
         Ok(())
     }
 
