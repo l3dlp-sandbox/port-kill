@@ -23,7 +23,7 @@ Join our Discord community for discussions, support, and updates:
 curl -fsSL portkill.com/install | bash
 
 # Windows (PowerShell or CMD)
-curl -fsSL portkill.com/install-windows -o install.bat && install.bat
+curl -fsSL portkill.com/install-windows -o install-release.bat && install-release.bat
 ```
 
 **Windows users:** After installation, you MUST restart your terminal completely for PATH changes to take effect.
