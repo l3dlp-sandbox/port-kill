@@ -42,22 +42,18 @@ pub async fn safe_delete_entries(
         fs::create_dir_all(&timestamped_dir)?;
         backup_path = Some(timestamped_dir.to_string_lossy().to_string());
 
-        // Create manifest
-        let manifest = BackupManifest {
-            timestamp: Utc::now(),
-            entries: entries.to_vec(),
-            backup_dir: timestamped_dir.to_string_lossy().to_string(),
-        };
-
-        let manifest_path = timestamped_dir.join("manifest.json");
-        let manifest_json = serde_json::to_string_pretty(&manifest)?;
-        fs::write(&manifest_path, manifest_json)?;
-
         // Move entries to backup
         for entry in entries {
             let src = Path::new(&entry.path);
             if src.exists() {
-                let dst = timestamped_dir.join(src.file_name().unwrap_or_default());
+                // Generate unique destination name using entry ID to avoid filename collisions
+                // (e.g., multiple __pycache__ directories from different paths)
+                let unique_name = format!(
+                    "{}-{}",
+                    entry.id.replace([':', '/', '\\'], "-"),
+                    src.file_name().unwrap_or_default().to_string_lossy()
+                );
+                let dst = timestamped_dir.join(&unique_name);
                 if let Err(e) = fs::rename(src, &dst) {
                     eprintln!("Warning: Failed to backup {}: {}", entry.path, e);
                 } else {
@@ -65,6 +61,17 @@ pub async fn safe_delete_entries(
                 }
             }
         }
+
+        // Create manifest with only successfully backed up entries
+        let manifest = BackupManifest {
+            timestamp: Utc::now(),
+            entries: deleted.clone(),
+            backup_dir: timestamped_dir.to_string_lossy().to_string(),
+        };
+
+        let manifest_path = timestamped_dir.join("manifest.json");
+        let manifest_json = serde_json::to_string_pretty(&manifest)?;
+        fs::write(&manifest_path, manifest_json)?;
     } else {
         // Direct deletion without backup
         for entry in entries {
@@ -119,8 +126,14 @@ pub async fn restore_from_backup(backup_path: &Path) -> Result<usize, std::io::E
     let mut restored_count = 0;
 
     for entry in &manifest.entries {
-        let backup_file = backup_path.join(Path::new(&entry.path).file_name().unwrap_or_default());
         let original_path = Path::new(&entry.path);
+        // Use the same unique naming scheme as in safe_delete_entries
+        let unique_name = format!(
+            "{}-{}",
+            entry.id.replace([':', '/', '\\'], "-"),
+            original_path.file_name().unwrap_or_default().to_string_lossy()
+        );
+        let backup_file = backup_path.join(&unique_name);
 
         if backup_file.exists() {
             // Ensure parent directory exists
@@ -133,6 +146,8 @@ pub async fn restore_from_backup(backup_path: &Path) -> Result<usize, std::io::E
             } else {
                 restored_count += 1;
             }
+        } else {
+            eprintln!("Warning: Backup file not found for {}", entry.path);
         }
     }
 

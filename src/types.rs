@@ -190,28 +190,35 @@ impl ProcessInfo {
     /// Extract project name from working directory
     pub fn extract_project_name(&self) -> Option<String> {
         if let Some(ref work_dir) = self.working_directory {
+            // Use std::path::Path for cross-platform path handling
+            // This correctly handles both Unix (/) and Windows (\) path separators
+            let path = Path::new(work_dir);
+
             // Get the last part of the path (project folder name)
-            let path_parts: Vec<&str> = work_dir.split('/').collect();
-            if let Some(last_part) = path_parts.last() {
-                if !last_part.is_empty() && *last_part != "~" {
-                    return Some(last_part.to_string());
+            if let Some(file_name) = path.file_name() {
+                if let Some(name_str) = file_name.to_str() {
+                    if !name_str.is_empty() && name_str != "~" {
+                        return Some(name_str.to_string());
+                    }
                 }
             }
 
-            // Try to find a meaningful project name from the path
-            for part in path_parts.iter().rev() {
-                if !part.is_empty() && *part != "~" && *part != "home" && *part != "Users" {
-                    // Check if this looks like a project directory
-                    if part.contains("project")
-                        || part.contains("app")
-                        || part.contains("service")
-                        || part.contains("api")
-                        || part.contains("frontend")
-                        || part.contains("backend")
-                        || part.contains("client")
-                        || part.contains("server")
-                    {
-                        return Some(part.to_string());
+            // Try to find a meaningful project name from the path components
+            for component in path.components().rev() {
+                if let Some(part) = component.as_os_str().to_str() {
+                    if !part.is_empty() && part != "~" && part != "home" && part != "Users" {
+                        // Check if this looks like a project directory
+                        if part.contains("project")
+                            || part.contains("app")
+                            || part.contains("service")
+                            || part.contains("api")
+                            || part.contains("frontend")
+                            || part.contains("backend")
+                            || part.contains("client")
+                            || part.contains("server")
+                        {
+                            return Some(part.to_string());
+                        }
                     }
                 }
             }

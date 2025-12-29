@@ -1755,8 +1755,8 @@ impl ConsolePortKillApp {
         println!();
 
         match detector.start_service(service) {
-            Ok(child) => {
-                println!("✅ Service started successfully with PID {}", child.id());
+            Ok(pid) => {
+                println!("✅ Service started successfully with PID {}", pid);
                 println!("💡 The service is now running in the background");
             }
             Err(e) => {

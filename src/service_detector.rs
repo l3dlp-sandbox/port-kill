@@ -75,10 +75,12 @@ impl ServiceDetector {
     }
 
     /// Start a discovered service
-    pub fn start_service(&self, service: &DiscoveredService) -> Result<Child> {
+    /// Returns the PID of the spawned process. The child process is detached
+    /// to prevent zombie process accumulation.
+    pub fn start_service(&self, service: &DiscoveredService) -> Result<u32> {
         log::info!("Starting service: {}", service.name);
 
-        match &service.service_type {
+        let child = match &service.service_type {
             ServiceType::NpmScript {
                 script_name,
                 package_json_path,
@@ -100,7 +102,14 @@ impl ServiceDetector {
                 command,
                 working_dir,
             } => self.start_custom_command(command, working_dir),
-        }
+        }?;
+        
+        let pid = child.id();
+        
+        // Detach the child process to prevent zombie accumulation
+        std::mem::forget(child);
+        
+        Ok(pid)
     }
 
     // Private methods for discovering services
@@ -347,14 +356,25 @@ impl ServiceDetector {
     }
 
     fn extract_docker_service_name(line: &str) -> Option<String> {
-        // Simple extraction of service names from docker-compose.yml
-        // Format: "  service_name:"
+        // Extract service names from docker-compose.yml by checking indentation
+        // Service names appear exactly 2 spaces indented under "services:"
+        // Format: "  service_name:" (2 spaces, then name, then colon)
+        // Properties like ports:, environment:, volumes: have 4+ spaces
+
+        // Check for exactly 2 spaces of indentation (service level)
+        // This filters out top-level keys (0 spaces) and properties (4+ spaces)
+        if !line.starts_with("  ") || line.starts_with("   ") {
+            return None;
+        }
+
         let trimmed = line.trim();
-        if trimmed.starts_with("services:") {
+        
+        // Skip the services: key itself and comments
+        if trimmed.starts_with("services:") || trimmed.starts_with('#') {
             return None;
         }
         
-        if trimmed.ends_with(':') && !trimmed.starts_with('#') {
+        if trimmed.ends_with(':') {
             let name = trimmed.trim_end_matches(':').trim();
             if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
                 return Some(name.to_string());

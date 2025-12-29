@@ -457,10 +457,11 @@ impl Args {
         let port_str = port_str.trim();
 
         if port_str.contains('-') {
-            // Handle port range (e.g., "3000-3010")
+            // Handle port range (e.g., "3000-3010" or "3000 - 3010")
             let parts: Vec<&str> = port_str.split('-').collect();
             if parts.len() == 2 {
-                if let (Ok(start), Ok(end)) = (parts[0].parse::<u16>(), parts[1].parse::<u16>()) {
+                // Trim each part to handle ranges with spaces like "3000 - 3010"
+                if let (Ok(start), Ok(end)) = (parts[0].trim().parse::<u16>(), parts[1].trim().parse::<u16>()) {
                     if start <= end {
                         return Some((start..=end).collect());
                     }

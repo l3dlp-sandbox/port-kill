@@ -17,7 +17,6 @@ use anyhow::Result;
 use clap::Parser;
 use log::{error, info};
 use std::collections::HashMap;
-use std::thread;
 use std::time::Duration;
 
 #[tokio::main]
@@ -48,7 +47,7 @@ async fn main() -> Result<()> {
     
     // Handle self-update
     if args.self_update {
-        match update_check::self_update() {
+        match update_check::self_update().await {
             Ok(()) => return Ok(()),
             Err(e) => {
                 eprintln!("⚠️  Self-update failed: {}", e);
@@ -60,7 +59,7 @@ async fn main() -> Result<()> {
     // Handle explicit update check
     if args.check_updates {
         let current_version = env!("CARGO_PKG_VERSION");
-        match update_check::check_for_updates(current_version) {
+        match update_check::check_for_updates(current_version).await {
             Ok(Some(update_info)) => {
                 update_check::print_update_check_result(&update_info);
                 return Ok(());
@@ -78,7 +77,7 @@ async fn main() -> Result<()> {
 
     // Background update notification (non-blocking)
     let current_version = env!("CARGO_PKG_VERSION");
-    if let Ok(Some(update_info)) = update_check::check_for_updates(current_version) {
+    if let Ok(Some(update_info)) = update_check::check_for_updates(current_version).await {
         update_check::print_update_notification(&update_info);
     }
 
@@ -118,7 +117,7 @@ async fn main() -> Result<()> {
         console_app.run().await
     } else {
         // Use Windows tray mode; on failure, fall back to console
-        match run_windows_tray_mode(args.clone()) {
+        match run_windows_tray_mode(args.clone()).await {
             Ok(()) => Ok(()),
             Err(e) => {
                 log::warn!("Tray mode failed on Windows ({}). Falling back to console mode...", e);
@@ -129,7 +128,7 @@ async fn main() -> Result<()> {
     }
 }
 
-fn run_windows_tray_mode(args: Args) -> Result<()> {
+async fn run_windows_tray_mode(args: Args) -> Result<()> {
     info!("Starting Windows tray mode...");
     
     // Create the tray item using the embedded icon resource (ID: 1)
@@ -190,16 +189,8 @@ fn run_windows_tray_mode(args: Args) -> Result<()> {
         if last_check.elapsed() >= Duration::from_secs(5) {
             last_check = std::time::Instant::now();
             
-            // Get process information with error handling
-            let (process_count, processes) = match std::panic::catch_unwind(|| {
-                get_processes_on_ports(&args.get_ports_to_monitor(), &args)
-            }) {
-                Ok(result) => result,
-                Err(e) => {
-                    error!("Panic caught while getting processes: {:?}", e);
-                    (0, HashMap::new())
-                }
-            };
+            // Get process information - now properly async within the runtime
+            let (process_count, processes) = get_processes_on_ports(&args.get_ports_to_monitor(), &args);
             let status_info = StatusBarInfo::from_process_count(process_count);
             
             // Only update if processes have actually changed
@@ -306,8 +297,8 @@ fn run_windows_tray_mode(args: Args) -> Result<()> {
             }
         }
         
-        // Small delay to prevent busy waiting
-        thread::sleep(Duration::from_millis(100));
+        // Small delay to prevent busy waiting - use tokio sleep for async compatibility
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
     
     info!("Port Kill application exiting...");

@@ -24,14 +24,14 @@ pub struct UpdateInfo {
     last_checked: u64,
 }
 
-pub fn check_for_updates(current_version: &str) -> Result<Option<UpdateInfo>> {
+pub async fn check_for_updates(current_version: &str) -> Result<Option<UpdateInfo>> {
     // Check if we should skip the update check (too recent)
     if should_skip_check()? {
         return Ok(None);
     }
 
     // Fetch latest release from GitHub
-    let latest_release = fetch_latest_release()?;
+    let latest_release = fetch_latest_release().await?;
     let latest_version = latest_release.tag_name.trim_start_matches('v');
 
     // Compare versions
@@ -54,12 +54,13 @@ pub fn check_for_updates(current_version: &str) -> Result<Option<UpdateInfo>> {
     }
 }
 
-fn fetch_latest_release() -> Result<GitHubRelease> {
-    let client = reqwest::blocking::Client::new();
+async fn fetch_latest_release() -> Result<GitHubRelease> {
+    let client = reqwest::Client::new();
     let response = client
         .get(GITHUB_API_URL)
         .header("User-Agent", "port-kill-update-checker")
-        .send()?;
+        .send()
+        .await?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
@@ -68,7 +69,7 @@ fn fetch_latest_release() -> Result<GitHubRelease> {
         ));
     }
 
-    let release: GitHubRelease = response.json()?;
+    let release: GitHubRelease = response.json().await?;
     Ok(release)
 }
 
@@ -122,11 +123,11 @@ fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-pub fn self_update() -> Result<()> {
+pub async fn self_update() -> Result<()> {
     let current_version = env!("CARGO_PKG_VERSION");
 
     // Check for updates
-    let update_info = match check_for_updates(current_version)? {
+    let update_info = match check_for_updates(current_version).await? {
         Some(info) => info,
         None => {
             println!(
@@ -148,15 +149,16 @@ pub fn self_update() -> Result<()> {
     let current_exe_path = current_exe.to_string_lossy().to_string();
 
     // Determine platform-specific download URL
-    let download_url = get_platform_download_url()?;
+    let download_url = get_platform_download_url().await?;
 
     // Download the new binary
     println!("📥 Downloading latest version...");
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
     let response = client
         .get(&download_url)
         .header(reqwest::header::USER_AGENT, "port-kill-updater")
-        .send()?;
+        .send()
+        .await?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
@@ -165,7 +167,7 @@ pub fn self_update() -> Result<()> {
         ));
     }
 
-    let new_binary = response.bytes()?;
+    let new_binary = response.bytes().await?;
 
     // Create a temporary file for the new binary
     let temp_dir = std::env::temp_dir();
@@ -225,7 +227,7 @@ del "%~f0"
     Ok(())
 }
 
-fn get_platform_download_url() -> Result<String> {
+async fn get_platform_download_url() -> Result<String> {
     let _platform = if cfg!(target_os = "windows") {
         "windows"
     } else if cfg!(target_os = "macos") {
@@ -235,13 +237,14 @@ fn get_platform_download_url() -> Result<String> {
     };
 
     // Get the latest release info to construct the download URL
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
     let response = client
         .get(GITHUB_API_URL)
         .header(reqwest::header::USER_AGENT, "port-kill-updater")
-        .send()?;
+        .send()
+        .await?;
 
-    let release: GitHubRelease = response.json()?;
+    let release: GitHubRelease = response.json().await?;
     let tag_name = release.tag_name;
 
     let binary_name = if cfg!(target_os = "windows") {

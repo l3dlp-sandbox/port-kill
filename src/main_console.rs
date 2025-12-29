@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
 
     // Handle self-update
     if args.self_update {
-        match update_check::self_update() {
+        match update_check::self_update().await {
             Ok(()) => return Ok(()),
             Err(e) => {
                 eprintln!("⚠️  Self-update failed: {}", e);
@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
     // Handle update check
     if args.check_updates {
         let current_version = env!("CARGO_PKG_VERSION");
-        match update_check::check_for_updates(current_version) {
+        match update_check::check_for_updates(current_version).await {
             Ok(Some(update_info)) => {
                 update_check::print_update_check_result(&update_info);
                 return Ok(());
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
 
     // Check for updates in background (non-blocking)
     let current_version = env!("CARGO_PKG_VERSION");
-    if let Ok(Some(update_info)) = update_check::check_for_updates(current_version) {
+    if let Ok(Some(update_info)) = update_check::check_for_updates(current_version).await {
         update_check::print_update_notification(&update_info);
     }
 
@@ -72,6 +72,11 @@ async fn main() -> Result<()> {
 
     // Save preset
     if let Some(name) = args.save_preset.clone() {
+        // Validate arguments before building preset to catch malformed port specifications
+        if let Err(e) = args.validate() {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
         let desc = args
             .preset_desc
             .clone()

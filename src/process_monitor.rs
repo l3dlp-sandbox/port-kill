@@ -1071,8 +1071,8 @@ impl ProcessMonitor {
 
         // Now restart using saved command
         match self.restart_manager.restart_port(port) {
-            Ok(child) => {
-                info!("Successfully restarted process on port {} with PID {}", port, child.id());
+            Ok(pid) => {
+                info!("Successfully restarted process on port {} with PID {}", port, pid);
                 Ok(())
             }
             Err(e) => {
@@ -1701,6 +1701,7 @@ pub fn kill_single_process(pid: i32, args: &crate::cli::Args) -> anyhow::Result<
     // Check if this process should be ignored
     let ignore_ports = args.get_ignore_ports_set();
     let ignore_processes = args.get_ignore_processes_set();
+    let ignore_groups = args.get_ignore_groups_set();
 
     // Get process info to check if it should be ignored
     let output = std::process::Command::new("ps")
@@ -1718,6 +1719,45 @@ pub fn kill_single_process(pid: i32, args: &crate::cli::Args) -> anyhow::Result<
                 pid
             );
             return Ok(());
+        }
+
+        // Check if process group should be ignored
+        // Determine process group based on process name (same logic as ProcessInfo::determine_process_group)
+        let name_lower = process_name.to_lowercase();
+        let process_group = if name_lower.contains("node") {
+            Some("Node.js".to_string())
+        } else if name_lower.contains("python") {
+            Some("Python".to_string())
+        } else if name_lower.contains("java") && !name_lower.contains("javascript") {
+            Some("Java".to_string())
+        } else if name_lower.contains("ruby") {
+            Some("Ruby".to_string())
+        } else if name_lower.contains("php") {
+            Some("PHP".to_string())
+        } else if name_lower.contains("go") || name_lower == "go" {
+            Some("Go".to_string())
+        } else if name_lower.contains("rust") || name_lower.contains("cargo") {
+            Some("Rust".to_string())
+        } else if name_lower.contains("docker") || name_lower.contains("containerd") {
+            Some("Docker".to_string())
+        } else if name_lower.contains("postgres") || name_lower.contains("mysql") || name_lower.contains("mongo") || name_lower.contains("redis") {
+            Some("Database".to_string())
+        } else if name_lower.contains("nginx") || name_lower.contains("apache") || name_lower.contains("httpd") {
+            Some("Web Server".to_string())
+        } else {
+            None
+        };
+
+        if let Some(ref group) = process_group {
+            if ignore_groups.contains(group) {
+                log::info!(
+                    "Ignoring process {} (PID {}) - belongs to ignored group {}",
+                    process_name,
+                    pid,
+                    group
+                );
+                return Ok(());
+            }
         }
     }
 

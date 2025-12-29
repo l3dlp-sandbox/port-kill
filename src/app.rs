@@ -1,4 +1,4 @@
-use crate::{cli::Args, tray_menu::TrayMenu, types::StatusBarInfo};
+use crate::{cli::Args, tray_menu::TrayMenu, types::{ProcessInfo, StatusBarInfo}};
 use anyhow::Result;
 use crossbeam_channel::{bounded, Receiver};
 use log::{error, info, warn};
@@ -141,7 +141,7 @@ impl PortKillApp {
                                         // Found the port for this menu ID, kill the specific process
                                         if let Some(process_info) = processes.get(&port) {
                                             info!("Killing specific process on port {} with PID {}", port, process_info.pid);
-                                            Self::kill_single_process(process_info.pid, &args_clone)
+                                            Self::kill_single_process(process_info, &args_clone)
                                         } else {
                                             error!("Process not found for port {}", port);
                                             Ok(())
@@ -1095,56 +1095,45 @@ impl PortKillApp {
         Ok(())
     }
 
-    pub fn kill_single_process(pid: i32, args: &Args) -> Result<()> {
-        info!("Killing single process PID: {}", pid);
+    pub fn kill_single_process(process_info: &ProcessInfo, args: &Args) -> Result<()> {
+        info!("Killing single process PID: {}", process_info.pid);
 
         // Check if this process should be ignored
         let ignore_ports = args.get_ignore_ports_set();
         let ignore_processes = args.get_ignore_processes_set();
+        let ignore_groups = args.get_ignore_groups_set();
 
-        // Get process info to check if it should be ignored
-        let output = std::process::Command::new("ps")
-            .args(&["-p", &pid.to_string(), "-o", "comm="])
-            .output();
+        // Check if process name should be ignored
+        if ignore_processes.contains(&process_info.name) {
+            info!(
+                "Ignoring process {} (PID {}) - process name is in ignore list",
+                process_info.name, process_info.pid
+            );
+            return Ok(());
+        }
 
-        if let Ok(output) = output {
-            let process_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-            // Check if process name should be ignored
-            if ignore_processes.contains(&process_name) {
+        // Check if process group should be ignored
+        if let Some(ref group) = process_info.process_group {
+            if ignore_groups.contains(group) {
                 info!(
-                    "Ignoring process {} (PID {}) - process name is in ignore list",
-                    process_name, pid
+                    "Ignoring process {} (PID {}) - belongs to ignored group {}",
+                    process_info.name, process_info.pid, group
                 );
                 return Ok(());
             }
         }
 
-        // Get port info to check if it should be ignored
-        let output = std::process::Command::new("lsof")
-            .args(&["-p", &pid.to_string(), "-i", "-P", "-n"])
-            .output();
-
-        if let Ok(output) = output {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 9 {
-                    if let Ok(port) = parts[8].split(':').last().unwrap_or("0").parse::<u16>() {
-                        if ignore_ports.contains(&port) {
-                            info!(
-                                "Ignoring process on port {} (PID {}) - port is in ignore list",
-                                port, pid
-                            );
-                            return Ok(());
-                        }
-                    }
-                }
-            }
+        // Check if port should be ignored
+        if ignore_ports.contains(&process_info.port) {
+            info!(
+                "Ignoring process on port {} (PID {}) - port is in ignore list",
+                process_info.port, process_info.pid
+            );
+            return Ok(());
         }
 
         // Process is not ignored, proceed with killing
-        Self::kill_process(pid)
+        Self::kill_process(process_info.pid)
     }
 
     /// Check if a process is still running by its PID

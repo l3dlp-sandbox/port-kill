@@ -168,7 +168,9 @@ impl PortGuardDaemon {
         // Get currently running processes
         let processes = monitor.scan_processes().await?;
         
-        // Check each watched port with a reservation
+        // Collect all ports that need restarting (similar to cleanup_expired_reservations pattern)
+        let mut ports_to_restart = Vec::new();
+        
         for (port, reservation) in reservations.iter() {
             if !self.watched_ports.contains(port) {
                 continue;
@@ -178,32 +180,31 @@ impl PortGuardDaemon {
             let has_process = processes.contains_key(port);
             
             if !has_process {
-                // Port is free but should have a process - try to restart it
+                // Port is free but should have a process - check if we can restart it
                 let restart_manager = monitor.get_restart_manager();
                 
                 if restart_manager.can_restart(*port) {
-                    let port_to_restart = *port;
-                    let project_name = reservation.project_name.clone();
-                    
-                    info!(
-                        "🔄 Detected dead process on port {} (reserved for {}), restarting...",
-                        port_to_restart, project_name
-                    );
-                    
-                    // Drop the locks before restarting to avoid deadlock
-                    drop(monitor);
-                    drop(reservations);
-                    
-                    // Restart the process
-                    let mut monitor_mut = self.process_monitor.lock().await;
-                    if let Err(e) = monitor_mut.restart_process_on_port(port_to_restart).await {
-                        warn!("Failed to auto-restart process on port {}: {}", port_to_restart, e);
-                    } else {
-                        info!("✅ Successfully auto-restarted process on port {}", port_to_restart);
-                    }
-                    
-                    return Ok(());
+                    ports_to_restart.push((*port, reservation.project_name.clone()));
                 }
+            }
+        }
+        
+        // Drop locks before restarting to avoid deadlock
+        drop(monitor);
+        drop(reservations);
+        
+        // Restart all dead processes
+        for (port, project_name) in ports_to_restart {
+            info!(
+                "🔄 Detected dead process on port {} (reserved for {}), restarting...",
+                port, project_name
+            );
+            
+            let mut monitor_mut = self.process_monitor.lock().await;
+            if let Err(e) = monitor_mut.restart_process_on_port(port).await {
+                warn!("Failed to auto-restart process on port {}: {}", port, e);
+            } else {
+                info!("✅ Successfully auto-restarted process on port {}", port);
             }
         }
         

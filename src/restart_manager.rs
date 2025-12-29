@@ -84,7 +84,9 @@ impl RestartManager {
     }
 
     /// Restart a process on a specific port
-    pub fn restart_port(&self, port: u16) -> Result<Child> {
+    /// Returns the PID of the spawned process. The child process is detached
+    /// to prevent zombie process accumulation.
+    pub fn restart_port(&self, port: u16) -> Result<u32> {
         let restart_info = self
             .restart_info
             .get(&port)
@@ -96,7 +98,15 @@ impl RestartManager {
             restart_info.command
         );
 
-        self.execute_restart(restart_info)
+        let child = self.execute_restart(restart_info)?;
+        let pid = child.id();
+        
+        // Detach the child process to prevent zombie accumulation
+        // When the Child handle is forgotten, the process runs independently
+        // and won't become a zombie when it terminates
+        std::mem::forget(child);
+        
+        Ok(pid)
     }
 
     /// Get restart info for a port
