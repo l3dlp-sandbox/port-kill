@@ -101,11 +101,44 @@ chmod +x "$INSTALL_DIR/port-kill-console"
 echo ""
 echo "✅ Installation complete!"
 echo ""
+
+# Auto-add to PATH if not already there
+SHELL_CONFIG=""
+if [[ -n "$ZSH_VERSION" ]] || [[ "$SHELL" == *"zsh"* ]]; then
+    SHELL_CONFIG="$HOME/.zshrc"
+elif [[ -n "$BASH_VERSION" ]] || [[ "$SHELL" == *"bash"* ]]; then
+    SHELL_CONFIG="$HOME/.bashrc"
+fi
+
+PATH_EXPORT="export PATH=\"\$PATH:$INSTALL_DIR\""
+
+if [[ -n "$SHELL_CONFIG" ]]; then
+    # Check if already in PATH or config
+    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+        if ! grep -q "$INSTALL_DIR" "$SHELL_CONFIG" 2>/dev/null; then
+            echo "🔧 Adding $INSTALL_DIR to PATH in $SHELL_CONFIG..."
+            echo "" >> "$SHELL_CONFIG"
+            echo "# Port Kill" >> "$SHELL_CONFIG"
+            echo "$PATH_EXPORT" >> "$SHELL_CONFIG"
+            echo "✅ PATH updated! Run this to use immediately:"
+            echo "   source $SHELL_CONFIG"
+            echo ""
+        else
+            echo "✅ PATH already configured in $SHELL_CONFIG"
+            echo ""
+        fi
+    else
+        echo "✅ $INSTALL_DIR is already in your PATH"
+        echo ""
+    fi
+else
+    echo "🔧 Add this to your shell config to use port-kill:"
+    echo "   $PATH_EXPORT"
+    echo ""
+fi
+
 echo "📋 Usage:"
 echo "   System tray mode: port-kill --ports 3000,8000"
 echo "   Console mode:     port-kill-console --console --ports 3000,8000"
-echo ""
-echo "🔧 Make sure $INSTALL_DIR is in your PATH:"
-echo "   export PATH=\"\$PATH:$INSTALL_DIR\""
 echo ""
 echo "📖 For more options: port-kill --help"
