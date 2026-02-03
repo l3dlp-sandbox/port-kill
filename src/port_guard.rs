@@ -26,6 +26,7 @@ pub struct PortGuardDaemon {
     process_monitor: Arc<Mutex<ProcessMonitor>>,
     intercepted_commands: Arc<Mutex<HashSet<String>>>,
     process_interception_enabled: bool,
+    allowed_process_name: Option<String>,
 }
 
 impl PortGuardDaemon {
@@ -47,7 +48,13 @@ impl PortGuardDaemon {
             process_monitor,
             intercepted_commands: Arc::new(Mutex::new(HashSet::new())),
             process_interception_enabled: true,
+            allowed_process_name: None,
         }
+    }
+
+    /// Set an allowed process name for guard enforcement
+    pub fn set_allowed_process_name(&mut self, name: String) {
+        self.allowed_process_name = Some(name);
     }
 
     /// Enable or disable auto-restart
@@ -133,14 +140,24 @@ impl PortGuardDaemon {
             }
         }
 
+        self.enforce_allowed_processes(&port_processes).await?;
+
         // Check for conflicts
         for (port, processes) in port_processes {
-            if processes.len() > 1 {
+            let allowed_processes: Vec<&ProcessInfo> = match self.allowed_process_name.as_deref() {
+                Some(allowed_name) => processes
+                    .into_iter()
+                    .filter(|process| process.name == allowed_name)
+                    .collect(),
+                None => processes,
+            };
+
+            if allowed_processes.len() > 1 {
                 // Multiple processes on the same port - this is a conflict
                 let conflict = PortConflict {
                     port,
-                    existing_process: processes[0].clone(),
-                    new_process: processes[1].clone(),
+                    existing_process: allowed_processes[0].clone(),
+                    new_process: allowed_processes[1].clone(),
                     conflict_type: PortConflictType::PortInUse,
                     resolution: None,
                 };
@@ -223,7 +240,10 @@ impl PortGuardDaemon {
         }
 
         // Auto-resolve by killing the older process
-        let older_process = if conflict.existing_process.pid < conflict.new_process.pid {
+        let older_process = if self
+            .is_process_older(&conflict.existing_process, &conflict.new_process)
+            .await
+        {
             &conflict.existing_process
         } else {
             &conflict.new_process
@@ -547,8 +567,14 @@ impl PortGuardDaemon {
             processes.values().filter(|p| p.port == port).collect();
 
         if !conflicting_processes.is_empty() {
-            // Kill the first conflicting process
-            let process_to_kill = conflicting_processes[0];
+            let process_to_kill = match self.allowed_process_name.as_deref() {
+                Some(allowed_name) => conflicting_processes
+                    .iter()
+                    .copied()
+                    .find(|process| process.name != allowed_name)
+                    .unwrap_or(conflicting_processes[0]),
+                None => conflicting_processes[0],
+            };
             info!(
                 "🔧 Killing conflicting process {} (PID: {}) on port {}",
                 process_to_kill.name, process_to_kill.pid, port
@@ -575,6 +601,73 @@ impl PortGuardDaemon {
                 port
             ))
         }
+    }
+
+    async fn is_process_older(&self, first: &ProcessInfo, second: &ProcessInfo) -> bool {
+        let (first_start, second_start) = {
+            let mut monitor = self.process_monitor.lock().await;
+            (
+                monitor.get_process_start_time(first.pid),
+                monitor.get_process_start_time(second.pid),
+            )
+        };
+
+        match (first_start, second_start) {
+            (Some(first_time), Some(second_time)) => first_time <= second_time,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => {
+                warn!(
+                    "Failed to determine process start times for PIDs {} and {}; falling back to PID comparison",
+                    first.pid, second.pid
+                );
+                first.pid < second.pid
+            }
+        }
+    }
+
+    async fn enforce_allowed_processes(
+        &self,
+        port_processes: &HashMap<u16, Vec<&ProcessInfo>>,
+    ) -> Result<()> {
+        let allowed_name = match self.allowed_process_name.as_deref() {
+            Some(name) => name,
+            None => return Ok(()),
+        };
+
+        let mut disallowed_processes = Vec::new();
+        for (port, processes) in port_processes {
+            for process in processes {
+                if process.name != allowed_name {
+                    disallowed_processes.push((*port, process.pid, process.name.clone()));
+                }
+            }
+        }
+
+        if disallowed_processes.is_empty() {
+            return Ok(());
+        }
+
+        for (port, pid, name) in disallowed_processes {
+            if !self.auto_resolve {
+                info!(
+                    "🔔 Unauthorized process '{}' on port {} - manual resolution required",
+                    name, port
+                );
+                continue;
+            }
+
+            info!(
+                "🚨 Unauthorized process '{}' (PID: {}) on port {} - KILLING",
+                name, pid, port
+            );
+
+            if let Err(e) = self.kill_process(pid).await {
+                warn!("Failed to kill unauthorized process {}: {}", pid, e);
+            }
+        }
+
+        Ok(())
     }
 
     /// Get intercepted commands count

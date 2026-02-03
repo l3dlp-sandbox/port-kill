@@ -23,8 +23,8 @@ pub struct RestartManager {
 impl RestartManager {
     pub fn new() -> Result<Self> {
         let home_dir = Self::get_home_dir();
-        let restart_history_path = PathBuf::from(format!("{}/.port-kill", home_dir))
-            .join("restart-history.json");
+        let restart_history_path =
+            PathBuf::from(format!("{}/.port-kill", home_dir)).join("restart-history.json");
 
         let mut manager = Self {
             restart_history_path: restart_history_path.clone(),
@@ -33,8 +33,7 @@ impl RestartManager {
 
         // Create the .port-kill directory if it doesn't exist
         if let Some(parent) = restart_history_path.parent() {
-            fs::create_dir_all(parent)
-                .context("Failed to create .port-kill directory")?;
+            fs::create_dir_all(parent).context("Failed to create .port-kill directory")?;
         }
 
         // Load existing restart info
@@ -53,8 +52,8 @@ impl RestartManager {
         working_directory: &str,
     ) -> Result<()> {
         // Parse command line into command and args
-        let command_parts = Self::parse_command_line(command_line);
-        
+        let command_parts = crate::command_line::parse_command_line(command_line);
+
         // Get current environment variables (filter to common dev vars)
         let env_vars = Self::get_relevant_env_vars();
 
@@ -100,12 +99,12 @@ impl RestartManager {
 
         let child = self.execute_restart(restart_info)?;
         let pid = child.id();
-        
+
         // Detach the child process to prevent zombie accumulation
         // When the Child handle is forgotten, the process runs independently
         // and won't become a zombie when it terminates
         std::mem::forget(child);
-        
+
         Ok(pid)
     }
 
@@ -167,40 +166,9 @@ impl RestartManager {
         Ok(child)
     }
 
-    fn parse_command_line(command_line: &str) -> Vec<String> {
-        // Simple shell-like parsing
-        let mut parts = Vec::new();
-        let mut current = String::new();
-        let mut in_quotes = false;
-        let mut chars = command_line.chars().peekable();
-
-        while let Some(c) = chars.next() {
-            match c {
-                '"' | '\'' => {
-                    in_quotes = !in_quotes;
-                }
-                ' ' | '\t' if !in_quotes => {
-                    if !current.is_empty() {
-                        parts.push(current.clone());
-                        current.clear();
-                    }
-                }
-                _ => {
-                    current.push(c);
-                }
-            }
-        }
-
-        if !current.is_empty() {
-            parts.push(current);
-        }
-
-        parts
-    }
-
     fn get_relevant_env_vars() -> HashMap<String, String> {
         let mut env_vars = HashMap::new();
-        
+
         // Common development environment variables
         let relevant_vars = [
             "PATH",
@@ -236,8 +204,8 @@ impl RestartManager {
     fn load(&mut self) -> Result<()> {
         let json = fs::read_to_string(&self.restart_history_path)
             .context("Failed to read restart history file")?;
-        self.restart_info = serde_json::from_str(&json)
-            .context("Failed to parse restart history file")?;
+        self.restart_info =
+            serde_json::from_str(&json).context("Failed to parse restart history file")?;
         Ok(())
     }
 
@@ -267,20 +235,22 @@ impl Default for RestartManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::command_line::parse_command_line;
 
     #[test]
     fn test_parse_command_line() {
         let cmd = "npm run dev --port 3000";
-        let parts = RestartManager::parse_command_line(cmd);
+        let parts = parse_command_line(cmd);
         assert_eq!(parts, vec!["npm", "run", "dev", "--port", "3000"]);
     }
 
     #[test]
     fn test_parse_command_line_with_quotes() {
         let cmd = r#"node "my script.js" --arg "value with spaces""#;
-        let parts = RestartManager::parse_command_line(cmd);
-        assert_eq!(parts, vec!["node", "my script.js", "--arg", "value with spaces"]);
+        let parts = parse_command_line(cmd);
+        assert_eq!(
+            parts,
+            vec!["node", "my script.js", "--arg", "value with spaces"]
+        );
     }
 }
-

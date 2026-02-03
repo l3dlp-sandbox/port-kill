@@ -339,8 +339,7 @@ impl ConsolePortKillApp {
                 self.process_monitor.clone(),
             );
             if let Some(name) = &self.args.allow {
-                // When allow is provided, PortGuard will allow only that name logically; this would be enforced inside guard component.
-                let _ = name; // placeholder to avoid warnings if not yet wired internally
+                daemon.set_allowed_process_name(name.clone());
             }
             daemon.set_process_interception(self.args.intercept_commands);
             let guard = Arc::new(daemon);

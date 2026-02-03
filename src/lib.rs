@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod cli;
+pub mod command_line;
 pub mod console_app;
 pub mod endpoint_monitor;
 pub mod file_monitor;

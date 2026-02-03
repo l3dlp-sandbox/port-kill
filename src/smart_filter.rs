@@ -61,21 +61,18 @@ impl SmartFilter {
             }
         }
 
-        // Check group ignore list
-        if let Some(ref group) = process_info.process_group {
-            if self.ignore_groups.contains(group) {
-                return true;
+        // Check only_groups filter (if specified, only show these groups)
+        if let Some(ref only_groups) = self.only_groups {
+            match process_info.process_group.as_ref() {
+                Some(group) if only_groups.contains(group) => return false,
+                Some(_) => return true,
+                None => return true,
             }
         }
 
-        // Check only_groups filter (if specified, only show these groups)
-        if let Some(ref only_groups) = self.only_groups {
-            if let Some(ref group) = process_info.process_group {
-                if !only_groups.contains(group) {
-                    return true;
-                }
-            } else {
-                // Process has no group but only_groups is specified
+        // Check group ignore list
+        if let Some(ref group) = process_info.process_group {
+            if self.ignore_groups.contains(group) {
                 return true;
             }
         }
@@ -279,5 +276,42 @@ mod tests {
         // Only Node.js should remain
         assert_eq!(processes.len(), 1);
         assert!(processes.contains_key(&3000));
+    }
+
+    #[test]
+    fn test_only_groups_overrides_ignore_groups() {
+        let filter = SmartFilter::new(
+            HashSet::new(),
+            HashSet::new(),
+            None,
+            ["Database".to_string()].iter().cloned().collect(),
+            Some(["Database".to_string()].iter().cloned().collect()),
+        )
+        .unwrap();
+
+        let mut processes = HashMap::new();
+        processes.insert(
+            5432,
+            ProcessInfo {
+                pid: 1234,
+                port: 5432,
+                command: "postgres".to_string(),
+                name: "postgres".to_string(),
+                container_id: None,
+                container_name: None,
+                command_line: None,
+                working_directory: None,
+                process_group: Some("Database".to_string()),
+                project_name: None,
+                cpu_usage: None,
+                memory_usage: None,
+                memory_percentage: None,
+            },
+        );
+
+        filter.filter_processes(&mut processes);
+
+        assert_eq!(processes.len(), 1);
+        assert!(processes.contains_key(&5432));
     }
 }

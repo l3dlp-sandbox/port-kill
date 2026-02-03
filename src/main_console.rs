@@ -367,7 +367,6 @@ async fn main() -> Result<()> {
             (reserve_port, project_name, process_name)
         {
             app.reserve_port(port, project_name, process_name).await?;
-            return Ok(());
         }
 
         app.start_port_guard().await?;

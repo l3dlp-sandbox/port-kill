@@ -162,7 +162,7 @@ impl Orchestrator {
         }
         
         // Parse and execute the command
-        let parts = Self::parse_command(&service_config.command);
+        let parts = crate::command_line::parse_command_line(&service_config.command);
         if parts.is_empty() {
             return Err(anyhow::anyhow!("Empty command for service '{}'", service_name));
         }
@@ -297,10 +297,11 @@ impl Orchestrator {
     
     fn resolve_dependencies(&self) -> Result<Vec<String>> {
         let mut visited = std::collections::HashSet::new();
+        let mut in_progress = std::collections::HashSet::new();
         let mut order = Vec::new();
         
         for service_name in self.config.services.keys() {
-            self.visit_service(service_name, &mut visited, &mut order)?;
+            self.visit_service(service_name, &mut visited, &mut in_progress, &mut order)?;
         }
         
         Ok(order)
@@ -310,20 +311,32 @@ impl Orchestrator {
         &self,
         service_name: &str,
         visited: &mut std::collections::HashSet<String>,
+        in_progress: &mut std::collections::HashSet<String>,
         order: &mut Vec<String>,
     ) -> Result<()> {
         if visited.contains(service_name) {
             return Ok(());
         }
+
+        if in_progress.contains(service_name) {
+            return Err(anyhow::anyhow!(
+                "Circular dependency detected involving service '{}'",
+                service_name
+            ));
+        }
+
+        in_progress.insert(service_name.to_string());
         
         let service = self.config.services.get(service_name)
             .ok_or_else(|| anyhow::anyhow!("Service '{}' not found", service_name))?;
         
         if let Some(ref deps) = service.depends_on {
             for dep in deps {
-                self.visit_service(dep, visited, order)?;
+                self.visit_service(dep, visited, in_progress, order)?;
             }
         }
+
+        in_progress.remove(service_name);
         
         visited.insert(service_name.to_string());
         order.push(service_name.to_string());
@@ -331,35 +344,6 @@ impl Orchestrator {
         Ok(())
     }
     
-    fn parse_command(command: &str) -> Vec<String> {
-        let mut parts = Vec::new();
-        let mut current = String::new();
-        let mut in_quotes = false;
-        let mut chars = command.chars().peekable();
-        
-        while let Some(c) = chars.next() {
-            match c {
-                '"' | '\'' => {
-                    in_quotes = !in_quotes;
-                }
-                ' ' | '\t' if !in_quotes => {
-                    if !current.is_empty() {
-                        parts.push(current.clone());
-                        current.clear();
-                    }
-                }
-                _ => {
-                    current.push(c);
-                }
-            }
-        }
-        
-        if !current.is_empty() {
-            parts.push(current);
-        }
-        
-        parts
-    }
 }
 
 /// Status of a service
@@ -420,20 +404,65 @@ services:
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::command_line::parse_command_line;
+    use crate::orchestrator::{OrchestrationConfig, Orchestrator, ServiceConfig};
     
     #[test]
     fn test_parse_command() {
         let cmd = "npm run dev --port 3000";
-        let parts = Orchestrator::parse_command(cmd);
+        let parts = parse_command_line(cmd);
         assert_eq!(parts, vec!["npm", "run", "dev", "--port", "3000"]);
     }
     
     #[test]
     fn test_parse_command_with_quotes() {
         let cmd = r#"node "my script.js" --arg "value with spaces""#;
-        let parts = Orchestrator::parse_command(cmd);
+        let parts = parse_command_line(cmd);
         assert_eq!(parts, vec!["node", "my script.js", "--arg", "value with spaces"]);
+    }
+
+    #[test]
+    fn test_resolve_dependencies_detects_cycle() {
+        let mut services = std::collections::HashMap::new();
+        services.insert(
+            "frontend".to_string(),
+            ServiceConfig {
+                command: "npm run dev".to_string(),
+                port: Some(3000),
+                dir: None,
+                depends_on: Some(vec!["backend".to_string()]),
+                env: None,
+                startup_delay: None,
+                healthcheck: None,
+            },
+        );
+        services.insert(
+            "backend".to_string(),
+            ServiceConfig {
+                command: "npm run start".to_string(),
+                port: Some(8000),
+                dir: None,
+                depends_on: Some(vec!["frontend".to_string()]),
+                env: None,
+                startup_delay: None,
+                healthcheck: None,
+            },
+        );
+
+        let config = OrchestrationConfig {
+            version: Some("1".to_string()),
+            env: None,
+            services,
+        };
+
+        let orchestrator = Orchestrator {
+            config,
+            running_services: std::collections::HashMap::new(),
+            config_path: std::path::PathBuf::from(".port-kill.yaml"),
+        };
+
+        let result = orchestrator.resolve_dependencies();
+        assert!(result.is_err());
     }
 }
 

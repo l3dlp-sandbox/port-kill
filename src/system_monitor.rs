@@ -66,6 +66,12 @@ impl SystemMonitor {
         }
     }
 
+    pub fn get_process_start_time(&mut self, pid: i32) -> Option<u64> {
+        let pid = Pid::from_u32(pid as u32);
+        self.system.refresh_process(pid);
+        self.system.process(pid).map(|process| process.start_time())
+    }
+
     pub fn get_system_info(&self) -> SystemInfo {
         SystemInfo {
             total_memory: self.system.total_memory() * 1024, // Convert to bytes

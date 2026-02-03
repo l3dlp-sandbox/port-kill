@@ -96,6 +96,10 @@ impl ProcessMonitor {
         })
     }
 
+    pub fn get_process_start_time(&mut self, pid: i32) -> Option<u64> {
+        self.system_monitor.get_process_start_time(pid)
+    }
+
     pub async fn start_monitoring(&mut self) -> Result<()> {
         let port_description = if self.ports_to_monitor.len() <= 10 {
             format!(
@@ -232,6 +236,28 @@ impl ProcessMonitor {
         };
         
         let (_count, mut processes) = get_processes_on_ports(&self.ports_to_monitor, &args);
+
+        if self.verbose {
+            #[cfg(not(target_os = "windows"))]
+            {
+                for process_info in processes.values_mut() {
+                    let (command_line, working_directory) =
+                        self.get_process_verbose_info(process_info.pid).await;
+                    process_info.command_line = command_line;
+                    process_info.working_directory = working_directory;
+                }
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                for process_info in processes.values_mut() {
+                    let (command_line, working_directory) =
+                        self.get_process_verbose_info_windows(process_info.pid).await;
+                    process_info.command_line = command_line;
+                    process_info.working_directory = working_directory;
+                }
+            }
+        }
 
         // Refresh system information for performance metrics
         if self.performance_enabled {

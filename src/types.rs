@@ -21,6 +21,63 @@ pub struct ProcessInfo {
     pub memory_percentage: Option<f64>, // NEW: Memory usage percentage
 }
 
+#[cfg(test)]
+mod tests {
+    use super::ProcessInfo;
+
+    fn process_with_dir(dir: &str) -> ProcessInfo {
+        ProcessInfo {
+            pid: 1,
+            port: 3000,
+            command: "test".to_string(),
+            name: "test".to_string(),
+            container_id: None,
+            container_name: None,
+            command_line: None,
+            working_directory: Some(dir.to_string()),
+            process_group: None,
+            project_name: None,
+            cpu_usage: None,
+            memory_usage: None,
+            memory_percentage: None,
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_extract_project_name_ignores_home_usernames() {
+        let process = process_with_dir("/home/alice");
+        assert_eq!(process.extract_project_name(), None);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_extract_project_name_ignores_system_dirs() {
+        let users = process_with_dir("/Users");
+        assert_eq!(users.extract_project_name(), None);
+
+        let home = process_with_dir("/home");
+        assert_eq!(home.extract_project_name(), None);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_extract_project_name_keeps_project_dir() {
+        let process = process_with_dir("/home/alice/my-project");
+        assert_eq!(
+            process.extract_project_name(),
+            Some("my-project".to_string())
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_extract_project_name_ignores_windows_usernames() {
+        let process = process_with_dir(r"C:\Users\Alice");
+        assert_eq!(process.extract_project_name(), None);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessUpdate {
     pub processes: HashMap<u16, ProcessInfo>,
@@ -165,7 +222,11 @@ impl ProcessInfo {
             Some("Python".to_string())
         } else if name_lower.contains("java") || command_lower.contains("java") {
             Some("Java".to_string())
-        } else if name_lower == "go" || name_lower == "golang" || command_lower.starts_with("go ") || command_lower.contains(" go ") {
+        } else if name_lower == "go"
+            || name_lower == "golang"
+            || command_lower.starts_with("go ")
+            || command_lower.contains(" go ")
+        {
             Some("Go".to_string())
         } else if name_lower.contains("rust") || command_lower.contains("cargo") {
             Some("Rust".to_string())
@@ -189,6 +250,10 @@ impl ProcessInfo {
 
     /// Extract project name from working directory
     pub fn extract_project_name(&self) -> Option<String> {
+        fn is_ignored_project_part(part: &str) -> bool {
+            part.is_empty() || part == "~" || part == "home" || part == "Users"
+        }
+
         if let Some(ref work_dir) = self.working_directory {
             // Use std::path::Path for cross-platform path handling
             // This correctly handles both Unix (/) and Windows (\) path separators
@@ -197,8 +262,17 @@ impl ProcessInfo {
             // Get the last part of the path (project folder name)
             if let Some(file_name) = path.file_name() {
                 if let Some(name_str) = file_name.to_str() {
-                    if !name_str.is_empty() && name_str != "~" {
-                        return Some(name_str.to_string());
+                    if !is_ignored_project_part(name_str) {
+                        let parent_is_home = path
+                            .parent()
+                            .and_then(|parent| parent.file_name())
+                            .and_then(|parent_name| parent_name.to_str())
+                            .map(is_ignored_project_part)
+                            .unwrap_or(false);
+
+                        if !parent_is_home {
+                            return Some(name_str.to_string());
+                        }
                     }
                 }
             }
@@ -206,7 +280,7 @@ impl ProcessInfo {
             // Try to find a meaningful project name from the path components
             for component in path.components().rev() {
                 if let Some(part) = component.as_os_str().to_str() {
-                    if !part.is_empty() && part != "~" && part != "home" && part != "Users" {
+                    if !is_ignored_project_part(part) {
                         // Check if this looks like a project directory
                         if part.contains("project")
                             || part.contains("app")

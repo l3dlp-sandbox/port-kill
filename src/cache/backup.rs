@@ -54,10 +54,20 @@ pub async fn safe_delete_entries(
                     src.file_name().unwrap_or_default().to_string_lossy()
                 );
                 let dst = timestamped_dir.join(&unique_name);
-                if let Err(e) = fs::rename(src, &dst) {
-                    eprintln!("Warning: Failed to backup {}: {}", entry.path, e);
-                } else {
-                    deleted.push(entry.clone());
+                match copy_dir_or_file(src, &dst) {
+                    Ok(()) => match remove_dir_or_file(src) {
+                        Ok(()) => deleted.push(entry.clone()),
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: Failed to remove original after backup {}: {}",
+                                entry.path, e
+                            );
+                            let _ = remove_dir_or_file(&dst);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Warning: Failed to backup {}: {}", entry.path, e);
+                    }
                 }
             }
         }
@@ -141,10 +151,15 @@ pub async fn restore_from_backup(backup_path: &Path) -> Result<usize, std::io::E
                 fs::create_dir_all(parent)?;
             }
 
-            if let Err(e) = fs::rename(&backup_file, original_path) {
-                eprintln!("Warning: Failed to restore {}: {}", entry.path, e);
-            } else {
-                restored_count += 1;
+            match copy_dir_or_file(&backup_file, original_path) {
+                Ok(()) => match remove_dir_or_file(&backup_file) {
+                    Ok(()) => restored_count += 1,
+                    Err(e) => eprintln!(
+                        "Warning: Failed to remove backup after restore {}: {}",
+                        entry.path, e
+                    ),
+                },
+                Err(e) => eprintln!("Warning: Failed to restore {}: {}", entry.path, e),
             }
         } else {
             eprintln!("Warning: Backup file not found for {}", entry.path);
@@ -158,4 +173,71 @@ pub async fn restore_from_backup(backup_path: &Path) -> Result<usize, std::io::E
     }
 
     Ok(restored_count)
+}
+
+fn copy_dir_or_file(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
+    if src.is_dir() {
+        prepare_directory_destination(dst)?;
+        copy_dir_recursive(src, dst)
+    } else {
+        prepare_file_destination(dst)?;
+        fs::copy(src, dst)?;
+        Ok(())
+    }
+}
+
+fn prepare_file_destination(dst: &Path) -> Result<(), std::io::Error> {
+    if dst.exists() {
+        if dst.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "Destination exists and is a directory",
+            ));
+        }
+        fs::remove_file(dst)?;
+    }
+    Ok(())
+}
+
+fn prepare_directory_destination(dst: &Path) -> Result<(), std::io::Error> {
+    if dst.exists() {
+        if !dst.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "Destination exists and is not a directory",
+            ));
+        }
+        let mut entries = fs::read_dir(dst)?;
+        if entries.next().is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "Destination directory is not empty",
+            ));
+        }
+        fs::remove_dir(dst)?;
+    }
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let entry_path = entry.path();
+        let dest_path = dst.join(entry.file_name());
+        if entry_path.is_dir() {
+            copy_dir_recursive(&entry_path, &dest_path)?;
+        } else {
+            fs::copy(&entry_path, &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_dir_or_file(path: &Path) -> Result<(), std::io::Error> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
 }

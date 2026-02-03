@@ -156,11 +156,16 @@ impl PresetManager {
             fs::create_dir_all(parent)?;
         }
 
-        // Filter out default presets - only save user-defined ones
+        let mut default_manager = PresetManager::new();
+        default_manager.load_default_presets();
+
         let user_presets: HashMap<String, PortPreset> = self
             .presets
             .iter()
-            .filter(|(name, _)| !self.default_preset_names.contains(*name))
+            .filter(|(name, preset)| match default_manager.presets.get(*name) {
+                Some(default_preset) => !Self::presets_match(preset, default_preset),
+                None => true,
+            })
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
@@ -271,6 +276,22 @@ impl PresetManager {
         add_default("minimal", minimal_preset);
     }
 
+    fn presets_match(left: &PortPreset, right: &PortPreset) -> bool {
+        left.name == right.name
+            && left.description == right.description
+            && left.ports == right.ports
+            && left.ignore_ports == right.ignore_ports
+            && left.ignore_processes == right.ignore_processes
+            && left.ignore_patterns == right.ignore_patterns
+            && left.ignore_groups == right.ignore_groups
+            && left.only_groups == right.only_groups
+            && left.smart_filter == right.smart_filter
+            && left.docker == right.docker
+            && left.show_pid == right.show_pid
+            && left.performance == right.performance
+            && left.show_context == right.show_context
+    }
+
     /// Get a preset by name
     pub fn get_preset(&self, name: &str) -> Option<&PortPreset> {
         self.presets.get(name)
@@ -362,6 +383,7 @@ impl Default for PresetManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_preset_creation() {
@@ -404,5 +426,46 @@ mod tests {
         let names = manager.get_preset_names();
         assert!(names.contains(&"dev".to_string()));
         assert!(names.contains(&"system".to_string()));
+    }
+
+    #[test]
+    fn test_save_overrides_default_preset() {
+        let test_dir = std::env::temp_dir().join(format!(
+            "port-kill-presets-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let config_path = test_dir.join("presets.json");
+
+        fs::create_dir_all(&test_dir).expect("Failed to create test directory");
+
+        let mut manager = PresetManager::new();
+        manager.config_path = config_path.to_string_lossy().to_string();
+        manager.load_default_presets();
+
+        let custom_dev = PortPreset::new(
+            "dev".to_string(),
+            "My custom dev preset".to_string(),
+            vec![9999, 9998],
+        );
+        manager.add_preset(custom_dev.clone());
+        manager.save_presets().expect("Failed to save presets");
+
+        let content = fs::read_to_string(&config_path).expect("Failed to read presets file");
+        let saved_presets: HashMap<String, PortPreset> =
+            serde_json::from_str(&content).expect("Failed to parse presets file");
+        assert!(saved_presets.contains_key("dev"));
+
+        let mut reloaded = PresetManager::new();
+        reloaded.config_path = config_path.to_string_lossy().to_string();
+        reloaded.load_presets().expect("Failed to load presets");
+
+        let loaded_dev = reloaded.get_preset("dev").expect("Missing dev preset");
+        assert_eq!(loaded_dev.ports, vec![9999, 9998]);
+        assert_eq!(loaded_dev.description, "My custom dev preset");
+
+        let _ = fs::remove_dir_all(&test_dir);
     }
 }
