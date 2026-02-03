@@ -16,7 +16,7 @@ echo "📦 Creating Linux-specific build configuration..."
 cat > Cargo.linux.tmp.toml << 'EOF'
 [package]
 name = "port-kill"
-version = "0.5.30"
+version = "0.5.33"
 edition = "2021"
 authors = ["Treadie <info@treadie.com>"]
 description = "A CLI tool to help you find and free ports blocking your dev work, plus manage development caches"
@@ -75,6 +75,7 @@ echo "📦 Creating Linux-specific lib.rs..."
 cat > src/lib.linux.tmp.rs << 'EOF'
 pub mod cache;
 pub mod cli;
+pub mod command_line;
 pub mod console_app;
 pub mod endpoint_monitor;
 pub mod file_monitor;
