@@ -597,7 +597,7 @@ powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/t
 
 #### Creating a Release
 
-**Option 1: Automated Release (Recommended)**
+**Automated Release (Recommended)**
 ```bash
 # Create a new release with automatic tag creation
 ./release.sh 0.x.x
@@ -606,18 +606,10 @@ powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/t
 This will:
 1. Create a git tag `v0.x.x`
 2. Push the tag to GitHub
-3. Automatically trigger release creation
+3. Automatically create the GitHub release
 4. Build and upload binaries for all platforms
 
-**Option 2: Manual Release**
-1. Go to the repository on GitHub
-2. Click "Releases" in the right sidebar
-3. Click "Create a new release"
-4. Set the tag version (e.g., `v0.x.x`)
-5. Add a title and release notes
-6. Click "Publish release"
-
-Both methods will automatically trigger the build workflow and upload all platform binaries.
+**Important:** Do not create the GitHub release manually. The workflow creates the release from the tag; manual releases will cause the release job to fail.
 
 ### Manual Installation
 

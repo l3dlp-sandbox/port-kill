@@ -22,6 +22,8 @@ if [ $# -eq 0 ]; then
     echo "  3. Trigger automatic release creation"
     echo "  4. Build and upload binaries for all platforms"
     echo ""
+    echo "Note: Do not create the GitHub release manually; the workflow will create it from the tag."
+    echo ""
     exit 1
 fi
 
