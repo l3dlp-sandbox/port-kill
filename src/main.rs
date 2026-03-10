@@ -316,6 +316,15 @@ use clap::Parser;
 #[cfg(target_os = "windows")]
 use log::info;
 #[cfg(target_os = "windows")]
+use port_kill::cache::output::print_or_json;
+#[cfg(target_os = "windows")]
+use port_kill::cache::{
+    clean::clean_caches,
+    doctor::doctor,
+    list::{list_caches, print_list_table},
+    restore::restore_last_backup,
+};
+#[cfg(target_os = "windows")]
 use port_kill::{cli::Args, console_app::ConsolePortKillApp};
 
 #[cfg(target_os = "windows")]
@@ -358,7 +367,8 @@ async fn main() -> Result<()> {
     // Skip update check for these to avoid 1-5+ second network delays
     let is_quick_operation = args.list_presets
         || args.save_preset.is_some()
-        || args.delete_preset.is_some();
+        || args.delete_preset.is_some()
+        || args.cache.is_some();
 
     // Check for updates only for long-running operations
     if !is_quick_operation {
@@ -460,6 +470,60 @@ async fn main() -> Result<()> {
     info!("Starting Port Kill application on Windows...");
     info!("Monitoring: {}", args.get_port_description());
 
+    // Handle cache subcommand: route to console-like behavior
+    if let Some(cache_cmd) = args.cache.clone() {
+        let c = cache_cmd.args();
+        if c.list || c.dry_run {
+            let resp = list_caches(
+                &c.lang,
+                c.npx,
+                c.js_pm,
+                c.hf,
+                c.torch,
+                c.vercel,
+                c.cloudflare,
+                c.stale_days,
+            )
+            .await;
+            if c.json {
+                print_or_json(&resp, true);
+            } else {
+                print_list_table(&resp);
+            }
+            return Ok(());
+        }
+        if c.clean {
+            let resp = clean_caches(
+                &c.lang,
+                c.npx,
+                c.js_pm,
+                c.safe_delete,
+                c.force,
+                c.hf,
+                c.torch,
+                c.vercel,
+                c.cloudflare,
+                c.stale_days,
+            )
+            .await;
+            print_or_json(&resp, c.json);
+            return Ok(());
+        }
+        if c.restore_last {
+            let resp = restore_last_backup().await;
+            print_or_json(&resp, c.json);
+            if resp.error.is_some() {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        if c.doctor {
+            let report = doctor().await;
+            print_or_json(&report, c.json);
+            return Ok(());
+        }
+    }
+
     // Handle new lifecycle management features
     
     if let Some(port) = args.restart {
@@ -537,6 +601,15 @@ use clap::Parser;
 #[cfg(target_os = "linux")]
 use log::info;
 #[cfg(target_os = "linux")]
+use port_kill::cache::output::print_or_json;
+#[cfg(target_os = "linux")]
+use port_kill::cache::{
+    clean::clean_caches,
+    doctor::doctor,
+    list::{list_caches, print_list_table},
+    restore::restore_last_backup,
+};
+#[cfg(target_os = "linux")]
 use port_kill::{cli::Args, console_app::ConsolePortKillApp};
 
 #[cfg(target_os = "linux")]
@@ -579,7 +652,8 @@ async fn main() -> Result<()> {
     // Skip update check for these to avoid 1-5+ second network delays
     let is_quick_operation = args.list_presets
         || args.save_preset.is_some()
-        || args.delete_preset.is_some();
+        || args.delete_preset.is_some()
+        || args.cache.is_some();
 
     // Check for updates only for long-running operations
     if !is_quick_operation {
@@ -680,6 +754,60 @@ async fn main() -> Result<()> {
 
     info!("Starting Port Kill application on Linux...");
     info!("Monitoring: {}", args.get_port_description());
+
+    // Handle cache subcommand: route to console-like behavior
+    if let Some(cache_cmd) = args.cache.clone() {
+        let c = cache_cmd.args();
+        if c.list || c.dry_run {
+            let resp = list_caches(
+                &c.lang,
+                c.npx,
+                c.js_pm,
+                c.hf,
+                c.torch,
+                c.vercel,
+                c.cloudflare,
+                c.stale_days,
+            )
+            .await;
+            if c.json {
+                print_or_json(&resp, true);
+            } else {
+                print_list_table(&resp);
+            }
+            return Ok(());
+        }
+        if c.clean {
+            let resp = clean_caches(
+                &c.lang,
+                c.npx,
+                c.js_pm,
+                c.safe_delete,
+                c.force,
+                c.hf,
+                c.torch,
+                c.vercel,
+                c.cloudflare,
+                c.stale_days,
+            )
+            .await;
+            print_or_json(&resp, c.json);
+            return Ok(());
+        }
+        if c.restore_last {
+            let resp = restore_last_backup().await;
+            print_or_json(&resp, c.json);
+            if resp.error.is_some() {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        if c.doctor {
+            let report = doctor().await;
+            print_or_json(&report, c.json);
+            return Ok(());
+        }
+    }
 
     // Handle new lifecycle management features
     

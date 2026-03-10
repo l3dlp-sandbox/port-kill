@@ -128,32 +128,29 @@ impl PortGuardDaemon {
     async fn check_port_conflicts(&self) -> Result<()> {
         let effective_ports = self.effective_watched_ports().await;
 
-        let mut monitor = self.process_monitor.lock().await;
-        let processes = monitor.scan_processes().await?;
+        let monitor = self.process_monitor.lock().await;
+        let processes = monitor.scan_processes_multi();
         drop(monitor);
 
-        // Group processes by port
-        let mut port_processes: HashMap<u16, Vec<&ProcessInfo>> = HashMap::new();
-        for process in processes.values() {
-            if effective_ports.contains(&process.port) {
-                port_processes
-                    .entry(process.port)
-                    .or_insert_with(Vec::new)
-                    .push(process);
+        // Group processes by port (multiple processes per port from scan_processes_multi)
+        let mut port_processes: HashMap<u16, Vec<ProcessInfo>> = HashMap::new();
+        for (port, vec) in processes {
+            if effective_ports.contains(&port) {
+                port_processes.insert(port, vec);
             }
         }
 
         self.enforce_allowed_processes(&port_processes).await?;
 
         // Check for conflicts
-        for (port, processes) in port_processes {
+        for (port, processes_on_port) in port_processes {
             let allowed_name = self.allowed_name_for_port(port).await;
-            let allowed_processes: Vec<&ProcessInfo> = match allowed_name.as_deref() {
-                Some(name) => processes
+            let allowed_processes: Vec<ProcessInfo> = match allowed_name.as_deref() {
+                Some(name) => processes_on_port
                     .into_iter()
-                    .filter(|process| process.name == name)
+                    .filter(|p| p.name == name)
                     .collect(),
-                None => processes,
+                None => processes_on_port,
             };
 
             if allowed_processes.len() > 1 {
@@ -640,7 +637,7 @@ impl PortGuardDaemon {
 
     async fn enforce_allowed_processes(
         &self,
-        port_processes: &HashMap<u16, Vec<&ProcessInfo>>,
+        port_processes: &HashMap<u16, Vec<ProcessInfo>>,
     ) -> Result<()> {
         let mut disallowed_processes = Vec::new();
         for (port, processes) in port_processes {

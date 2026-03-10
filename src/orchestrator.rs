@@ -170,10 +170,11 @@ impl Orchestrator {
         let program = &parts[0];
         let args = &parts[1..];
         
+        let config_parent = self.config_path.parent().unwrap_or(Path::new("."));
         let working_dir = if let Some(ref dir) = service_config.dir {
-            PathBuf::from(dir)
+            config_parent.join(dir)
         } else {
-            self.config_path.parent().unwrap_or(Path::new(".")).to_path_buf()
+            config_parent.to_path_buf()
         };
         
         let mut cmd = Command::new(program);
@@ -406,7 +407,7 @@ services:
 mod tests {
     use crate::command_line::parse_command_line;
     use crate::orchestrator::{OrchestrationConfig, Orchestrator, ServiceConfig};
-    
+
     #[test]
     fn test_parse_command() {
         let cmd = "npm run dev --port 3000";
@@ -463,6 +464,42 @@ mod tests {
 
         let result = orchestrator.resolve_dependencies();
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_working_dir_relative_to_config() {
+        let root_temp = std::env::temp_dir().join("port-kill-test-wd");
+        let _ = std::fs::remove_dir_all(&root_temp);
+        std::fs::create_dir_all(&root_temp).unwrap();
+
+        let config_path = root_temp.join("port-kill.yaml");
+        let service_dir = root_temp.join("service_dir");
+        std::fs::create_dir(&service_dir).unwrap();
+
+        let config_content = r#"
+services:
+  test_service:
+    command: ls
+    dir: service_dir
+"#;
+        std::fs::write(&config_path, config_content).unwrap();
+
+        let mut orchestrator = Orchestrator::load(&config_path).unwrap();
+
+        let original_cwd = std::env::current_dir().unwrap();
+        let other_dir = root_temp.join("other_dir");
+        std::fs::create_dir_all(&other_dir).unwrap();
+        std::env::set_current_dir(&other_dir).unwrap();
+
+        let result = orchestrator.start_service("test_service").await;
+
+        std::env::set_current_dir(original_cwd).unwrap();
+
+        assert!(
+            result.is_ok(),
+            "Service should start correctly when dir is relative to config: {:?}",
+            result.err()
+        );
     }
 }
 

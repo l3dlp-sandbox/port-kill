@@ -294,6 +294,99 @@ impl ProcessMonitor {
         Ok(processes)
     }
 
+    /// Scans ports and returns all processes per port (multiple processes can share a port).
+    /// Used by Port Guard for conflict detection. Does not update current_processes.
+    pub fn scan_processes_multi(&self) -> HashMap<u16, Vec<ProcessInfo>> {
+        let args = crate::cli::Args {
+            start_port: 2000,
+            end_port: 6000,
+            ports: None,
+            ignore_ports: None,
+            ignore_processes: None,
+            ignore_patterns: None,
+            ignore_groups: None,
+            smart_filter: false,
+            only_groups: None,
+            console: false,
+            verbose: false,
+            docker: self.docker_enabled,
+            show_pid: false,
+            log_level: crate::cli::LogLevel::Info,
+            show_history: false,
+            clear_history: false,
+            show_filters: false,
+            performance: false,
+            show_context: false,
+            kill_all: false,
+            kill_group: None,
+            kill_project: None,
+            restart: None,
+            show_restart_history: false,
+            clear_restart: None,
+            show_tree: false,
+            json: false,
+            reset: false,
+            show_offenders: false,
+            show_patterns: false,
+            show_suggestions: false,
+            show_stats: false,
+            show_root_cause: false,
+            guard_mode: false,
+            guard_ports: "3000,3001,3002,8000,8080,9000".to_string(),
+            auto_resolve: false,
+            reservation_file: "~/.port-kill/reservations.json".to_string(),
+            intercept_commands: false,
+            reserve_port: None,
+            project_name: None,
+            process_name: None,
+            audit: false,
+            security_mode: false,
+            suspicious_ports: "8444,4444,9999,14444,5555,6666,7777".to_string(),
+            baseline_file: None,
+            suspicious_only: false,
+            remote: None,
+            monitor_endpoint: None,
+            send_interval: 30,
+            scan_interval: 2,
+            endpoint_auth: None,
+            endpoint_fields: None,
+            endpoint_include_audit: false,
+            endpoint_retries: 3,
+            endpoint_timeout: 10,
+            script: None,
+            script_file: None,
+            script_lang: "js".to_string(),
+            clear: None,
+            guard: None,
+            allow: None,
+            kill: None,
+            kill_file: None,
+            kill_ext: None,
+            list_file: None,
+            list: false,
+            safe: false,
+            positional_ports: vec![],
+            preset: None,
+            list_presets: false,
+            save_preset: None,
+            preset_desc: None,
+            delete_preset: None,
+            check_updates: false,
+            self_update: false,
+            cache: None,
+            detect: false,
+            start: None,
+            guard_auto_restart: false,
+            up: false,
+            down: false,
+            restart_service: None,
+            status: false,
+            config_file: ".port-kill.yaml".to_string(),
+            init_config: false,
+        };
+        get_processes_on_ports_multi(&self.ports_to_monitor, &args)
+    }
+
     #[allow(dead_code)]
     async fn get_process_on_port(&self, port: u16) -> Result<ProcessInfo> {
         #[cfg(target_os = "windows")]
@@ -1343,6 +1436,110 @@ fn get_processes_on_ports_unix(
     (processes.len(), processes)
 }
 
+/// Returns all processes per port (multiple processes can share a port). Used by Port Guard for conflict detection.
+pub fn get_processes_on_ports_multi(
+    ports: &[u16],
+    args: &crate::cli::Args,
+) -> HashMap<u16, Vec<crate::types::ProcessInfo>> {
+    if ports.is_empty() {
+        return HashMap::new();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        get_processes_on_ports_windows_multi(ports, args)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        get_processes_on_ports_unix_multi(ports, args)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_processes_on_ports_unix_multi(
+    ports: &[u16],
+    args: &crate::cli::Args,
+) -> HashMap<u16, Vec<crate::types::ProcessInfo>> {
+    const MAX_PORTS_PER_LSOF: usize = 100;
+    const LARGE_RANGE_THRESHOLD: usize = 200;
+
+    let mut processes = HashMap::new();
+    let ports_filter: HashSet<u16> = ports.iter().copied().collect();
+    let ignore_ports = args.get_ignore_ports_set();
+    let ignore_processes = args.get_ignore_processes_set();
+
+    if ports.len() > LARGE_RANGE_THRESHOLD {
+        let lsof_args = vec![
+            "-sTCP:LISTEN".to_string(),
+            "-P".to_string(),
+            "-n".to_string(),
+            "-iTCP".to_string(),
+        ];
+        if let Ok(output) = std::process::Command::new("lsof").args(&lsof_args).output() {
+            if output.status.success() || !output.stdout.is_empty() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                parse_lsof_output_multi(
+                    &stdout,
+                    &ports_filter,
+                    &ignore_ports,
+                    &ignore_processes,
+                    &mut processes,
+                );
+            }
+        }
+    } else {
+        for chunk in ports.chunks(MAX_PORTS_PER_LSOF) {
+            let mut lsof_args = vec![
+                "-sTCP:LISTEN".to_string(),
+                "-P".to_string(),
+                "-n".to_string(),
+            ];
+            for port in chunk {
+                lsof_args.push("-i".to_string());
+                lsof_args.push(format!(":{}", port));
+            }
+            if let Ok(output) = std::process::Command::new("lsof").args(&lsof_args).output() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                parse_lsof_output_multi(
+                    &stdout,
+                    &ports_filter,
+                    &ignore_ports,
+                    &ignore_processes,
+                    &mut processes,
+                );
+            }
+        }
+    }
+    processes
+}
+
+#[cfg(target_os = "windows")]
+fn get_processes_on_ports_windows_multi(
+    ports: &[u16],
+    args: &crate::cli::Args,
+) -> HashMap<u16, Vec<crate::types::ProcessInfo>> {
+    let mut processes = HashMap::new();
+    let ports_filter: HashSet<u16> = ports.iter().copied().collect();
+    let ignore_ports = args.get_ignore_ports_set();
+    let ignore_processes = args.get_ignore_processes_set();
+
+    if let Ok(output) = std::process::Command::new("netstat")
+        .args(&["-ano", "-p", "TCP"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            parse_netstat_output_multi(
+                &stdout,
+                &ports_filter,
+                &ignore_ports,
+                &ignore_processes,
+                &mut processes,
+            );
+        }
+    }
+    processes
+}
+
 #[cfg(target_os = "windows")]
 fn get_processes_on_ports_windows(
     ports: &[u16],
@@ -1577,8 +1774,123 @@ fn parse_lsof_output(
     }
 }
 
+/// Parses lsof output and collects all processes per port (multiple processes can share a port).
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn parse_lsof_output_multi(
+    stdout: &str,
+    ports_filter: &HashSet<u16>,
+    ignore_ports: &HashSet<u16>,
+    ignore_processes: &HashSet<String>,
+    processes: &mut HashMap<u16, Vec<crate::types::ProcessInfo>>,
+) {
+    for line in stdout.lines().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 9 {
+            continue;
+        }
+        let pid = match parts[1].parse::<i32>() {
+            Ok(pid) => pid,
+            Err(_) => continue,
+        };
+        let port_str = parts[8].split(':').last().unwrap_or("0");
+        let port = match port_str.parse::<u16>() {
+            Ok(port) => port,
+            Err(_) => continue,
+        };
+        if !ports_filter.is_empty() && !ports_filter.contains(&port) {
+            continue;
+        }
+        if ignore_ports.contains(&port) {
+            continue;
+        }
+        if ignore_processes.contains(parts[0]) {
+            continue;
+        }
+        let mut process_info = crate::types::ProcessInfo {
+            pid,
+            port,
+            command: parts[0].to_string(),
+            name: parts[0].to_string(),
+            container_id: None,
+            container_name: None,
+            command_line: None,
+            working_directory: None,
+            process_group: None,
+            project_name: None,
+            cpu_usage: None,
+            memory_usage: None,
+            memory_percentage: None,
+        };
+        process_info.process_group = process_info.determine_process_group();
+        process_info.project_name = process_info.extract_project_name();
+        processes.entry(port).or_default().push(process_info);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn parse_netstat_output_multi(
+    stdout: &str,
+    ports_filter: &HashSet<u16>,
+    ignore_ports: &HashSet<u16>,
+    ignore_processes: &HashSet<String>,
+    processes: &mut HashMap<u16, Vec<crate::types::ProcessInfo>>,
+) {
+    for line in stdout.lines() {
+        if !line.contains("LISTENING") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        let local_addr = parts[1];
+        let port = if let Some(port_str) = local_addr.split(':').last() {
+            match port_str.parse::<u16>() {
+                Ok(p) => p,
+                Err(_) => continue,
+            }
+        } else {
+            continue;
+        };
+        if !ports_filter.is_empty() && !ports_filter.contains(&port) {
+            continue;
+        }
+        if ignore_ports.contains(&port) {
+            continue;
+        }
+        let pid = match parts[4].parse::<i32>() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let process_name = get_process_name_windows(pid).unwrap_or_else(|| "Unknown".to_string());
+        if ignore_processes.contains(&process_name) {
+            continue;
+        }
+        let mut process_info = crate::types::ProcessInfo {
+            pid,
+            port,
+            command: process_name.clone(),
+            name: process_name,
+            container_id: None,
+            container_name: None,
+            command_line: None,
+            working_directory: None,
+            process_group: None,
+            project_name: None,
+            cpu_usage: None,
+            memory_usage: None,
+            memory_percentage: None,
+        };
+        process_info.process_group = process_info.determine_process_group();
+        process_info.project_name = process_info.extract_project_name();
+        processes.entry(port).or_default().push(process_info);
+    }
+}
+
 #[cfg(target_os = "windows")]
 pub fn kill_all_processes(ports: &[u16], args: &crate::cli::Args) -> anyhow::Result<()> {
+    use std::collections::HashSet;
+
     let port_list = ports
         .iter()
         .map(|p| p.to_string())
@@ -1586,45 +1898,63 @@ pub fn kill_all_processes(ports: &[u16], args: &crate::cli::Args) -> anyhow::Res
         .join(", ");
     log::info!("Killing all processes on ports {}...", port_list);
 
-    // Get ignore sets for efficient lookup
     let ignore_ports = args.get_ignore_ports_set();
     let ignore_processes = args.get_ignore_processes_set();
+    let ports_filter: HashSet<u16> = ports
+        .iter()
+        .copied()
+        .filter(|p| !ignore_ports.contains(p))
+        .collect();
 
+    if ports_filter.is_empty() {
+        log::info!("No ports to kill (all ignored by user configuration)");
+        return Ok(());
+    }
+
+    let output = match std::process::Command::new("netstat")
+        .args(&["-ano", "-p", "TCP"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(e) => {
+            log::error!("Failed to run netstat command: {}", e);
+            return Err(anyhow::anyhow!("Failed to run netstat: {}", e));
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let mut pids_to_kill = Vec::new();
 
-    // On Windows, use netstat to find processes on ports
-    for &port in ports {
-        if ignore_ports.contains(&port) {
+    for line in stdout.lines() {
+        if !line.contains("LISTENING") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        let local_addr = parts[1];
+        let port = match local_addr.split(':').last().and_then(|s| s.parse::<u16>().ok()) {
+            Some(p) => p,
+            None => continue,
+        };
+        if !ports_filter.contains(&port) {
+            continue;
+        }
+        let pid = match parts[4].parse::<i32>() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let process_name = get_process_name_windows(pid).unwrap_or_else(|| "Unknown".to_string());
+        if ignore_processes.contains(&process_name) {
             log::info!(
-                "Ignoring port {} during kill operation (ignored by user configuration)",
-                port
+                "Ignoring process {} (PID {}) on port {} during kill operation (ignored by user configuration)",
+                process_name, pid, port
             );
             continue;
         }
-
-        let output = match std::process::Command::new("netstat")
-            .args(&["-ano", "-p", "TCP"])
-            .output()
-        {
-            Ok(output) => output,
-            Err(e) => {
-                log::error!("Failed to run netstat command: {}", e);
-                continue;
-            }
-        };
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if line.contains(&format!(":{}", port)) && line.contains("LISTENING") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if let Some(pid_str) = parts.last() {
-                    if let Ok(pid) = pid_str.parse::<i32>() {
-                        if !pids_to_kill.contains(&pid) {
-                            pids_to_kill.push(pid);
-                        }
-                    }
-                }
-            }
+        if !pids_to_kill.contains(&pid) {
+            pids_to_kill.push(pid);
         }
     }
 
@@ -1699,9 +2029,9 @@ pub fn kill_all_processes(ports: &[u16], args: &crate::cli::Args) -> anyhow::Res
                 let should_ignore =
                     ignore_ports.contains(&port) || ignore_processes.contains(&name);
 
-                if !should_ignore {
+                if !should_ignore && !pids_to_kill.contains(&pid) {
                     pids_to_kill.push(pid);
-                } else {
+                } else if should_ignore {
                     log::info!("Ignoring process {} (PID {}) on port {} during kill operation (ignored by user configuration)", name, pid, port);
                 }
             }
@@ -1910,4 +2240,34 @@ fn kill_process(pid: i32) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+#[cfg(not(target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_lsof_output_multi_multiple_processes_on_same_port() {
+        let stdout = "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+node     1234 user   22u  IPv4 0x1234      0t0  TCP *:3000 (LISTEN)
+python   5678 user   23u  IPv6 0x5678      0t0  TCP *:3000 (LISTEN)";
+        let ports_filter: HashSet<u16> = [3000].into_iter().collect();
+        let ignore_ports = HashSet::new();
+        let ignore_processes = HashSet::new();
+        let mut processes: HashMap<u16, Vec<crate::types::ProcessInfo>> = HashMap::new();
+        parse_lsof_output_multi(
+            stdout,
+            &ports_filter,
+            &ignore_ports,
+            &ignore_processes,
+            &mut processes,
+        );
+        assert_eq!(processes.len(), 1, "Should have one port entry");
+        let on_port = processes.get(&3000).expect("port 3000");
+        assert_eq!(on_port.len(), 2, "Should find both processes on port 3000");
+        let names: Vec<&str> = on_port.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"node"));
+        assert!(names.contains(&"python"));
+    }
 }

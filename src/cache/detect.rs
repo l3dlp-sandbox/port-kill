@@ -4,6 +4,21 @@ use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Returns true if the entry should be considered stale for --stale-days filtering.
+/// When stale_days is None, returns false (no filtering). When stale_days is Some(threshold),
+/// returns true if mtime is older than threshold days, or if mtime is unknown.
+fn is_stale(mtime: Option<DateTime<Utc>>, stale_days: Option<u32>) -> bool {
+    match (mtime, stale_days) {
+        (_, None) => false,
+        (None, Some(_)) => true,
+        (Some(last_used), Some(threshold)) => {
+            let now = Utc::now();
+            let days_old = (now - last_used).num_days();
+            days_old > threshold as i64
+        }
+    }
+}
+
 fn dir_size_and_mtime(path: &Path) -> (u64, Option<DateTime<Utc>>) {
     let mut total: u64 = 0;
     let mut newest: Option<DateTime<Utc>> = None;
@@ -26,7 +41,7 @@ fn dir_size_and_mtime(path: &Path) -> (u64, Option<DateTime<Utc>>) {
     (total, newest)
 }
 
-pub fn detect_rust_caches(root: &Path) -> Vec<CacheEntry> {
+pub fn detect_rust_caches(root: &Path, stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
 
     // project target/
@@ -40,7 +55,7 @@ pub fn detect_rust_caches(root: &Path) -> Vec<CacheEntry> {
             path: target.to_string_lossy().to_string(),
             size_bytes: size,
             last_used_at: mtime,
-            stale: false,
+            stale: is_stale(mtime, stale_days),
             details: json!({}),
         });
     }
@@ -57,7 +72,7 @@ pub fn detect_rust_caches(root: &Path) -> Vec<CacheEntry> {
                 path: cargo_registry.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({}),
             });
         }
@@ -66,10 +81,9 @@ pub fn detect_rust_caches(root: &Path) -> Vec<CacheEntry> {
     entries
 }
 
-pub fn detect_js_caches(root: &Path) -> Vec<CacheEntry> {
+pub fn detect_js_caches(root: &Path, stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
 
-    // Common JS/TS build/cache directories
     let js_dirs = [
         ("node_modules", "js", "Node modules"),
         (".next", "js", "Next.js build"),
@@ -93,7 +107,7 @@ pub fn detect_js_caches(root: &Path) -> Vec<CacheEntry> {
                 path: dir_path.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false, // TODO: implement stale detection
+                stale: is_stale(mtime, stale_days),
                 details: json!({
                     "framework": dir_name,
                     "type": "build_cache"
@@ -119,16 +133,7 @@ pub fn detect_npx_caches(stale_days: Option<u32>) -> Vec<CacheEntry> {
                         let package_name = entry.file_name().to_string_lossy().to_string();
                         let package_path = entry.path();
                         let (size, mtime) = dir_size_and_mtime(&package_path);
-
-                        // Determine if package is stale based on stale_days parameter
-                        let stale = if let Some(last_used) = mtime {
-                            let now = chrono::Utc::now();
-                            let days_old = (now - last_used).num_days();
-                            let threshold = stale_days.unwrap_or(30); // Default to 30 days
-                            days_old > threshold as i64
-                        } else {
-                            true
-                        };
+                        let stale = is_stale(mtime, stale_days);
 
                         // Try to extract package name and version from package.json
                         let (actual_name, version) = extract_package_info(&package_path);
@@ -224,7 +229,7 @@ fn extract_package_info(package_path: &Path) -> (String, Option<String>) {
     ("unknown".to_string(), None)
 }
 
-pub fn detect_js_pm_caches() -> Vec<CacheEntry> {
+pub fn detect_js_pm_caches(stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
 
     if let Ok(home) = std::env::var("HOME") {
@@ -241,7 +246,7 @@ pub fn detect_js_pm_caches() -> Vec<CacheEntry> {
                 path: npm_cache.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({"manager": "npm"}),
             });
         }
@@ -257,7 +262,7 @@ pub fn detect_js_pm_caches() -> Vec<CacheEntry> {
                 path: pnpm_store.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({"manager": "pnpm"}),
             });
         }
@@ -273,7 +278,7 @@ pub fn detect_js_pm_caches() -> Vec<CacheEntry> {
                 path: yarn_cache.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({"manager": "yarn"}),
             });
         }
@@ -282,7 +287,7 @@ pub fn detect_js_pm_caches() -> Vec<CacheEntry> {
     entries
 }
 
-pub fn detect_python_caches() -> Vec<CacheEntry> {
+pub fn detect_python_caches(stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
@@ -315,7 +320,7 @@ pub fn detect_python_caches() -> Vec<CacheEntry> {
             path: entry.path().to_string_lossy().to_string(),
             size_bytes: size,
             last_used_at: mtime,
-            stale: false,
+            stale: is_stale(mtime, stale_days),
             details: json!({ "type": cache_type }),
         });
         it.skip_current_dir();
@@ -324,7 +329,7 @@ pub fn detect_python_caches() -> Vec<CacheEntry> {
     entries
 }
 
-pub fn detect_java_caches() -> Vec<CacheEntry> {
+pub fn detect_java_caches(stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
@@ -349,7 +354,7 @@ pub fn detect_java_caches() -> Vec<CacheEntry> {
                 path: entry.path().to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({ "type": "gradle_cache" }),
             });
             it.skip_current_dir();
@@ -375,7 +380,7 @@ pub fn detect_java_caches() -> Vec<CacheEntry> {
                     path: entry.path().to_string_lossy().to_string(),
                     size_bytes: size,
                     last_used_at: mtime,
-                    stale: false,
+                    stale: is_stale(mtime, stale_days),
                     details: json!({ "type": "build_cache" }),
                 });
                 it.skip_current_dir();
@@ -395,7 +400,7 @@ pub fn detect_java_caches() -> Vec<CacheEntry> {
                 path: maven_repo.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({ "type": "maven_repository" }),
             });
         }
@@ -404,7 +409,7 @@ pub fn detect_java_caches() -> Vec<CacheEntry> {
     entries
 }
 
-pub fn detect_hf_caches() -> Vec<CacheEntry> {
+pub fn detect_hf_caches(stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
 
     if let Ok(home) = std::env::var("HOME") {
@@ -420,7 +425,7 @@ pub fn detect_hf_caches() -> Vec<CacheEntry> {
                 path: hf_cache.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({ "type": "hf_cache" }),
             });
         }
@@ -429,7 +434,7 @@ pub fn detect_hf_caches() -> Vec<CacheEntry> {
     entries
 }
 
-pub fn detect_torch_caches() -> Vec<CacheEntry> {
+pub fn detect_torch_caches(stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
 
     if let Ok(home) = std::env::var("HOME") {
@@ -445,7 +450,7 @@ pub fn detect_torch_caches() -> Vec<CacheEntry> {
                 path: torch_cache.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({ "type": "torch_cache" }),
             });
         }
@@ -454,7 +459,7 @@ pub fn detect_torch_caches() -> Vec<CacheEntry> {
     entries
 }
 
-pub fn detect_vercel_caches() -> Vec<CacheEntry> {
+pub fn detect_vercel_caches(stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
 
     if let Ok(home) = std::env::var("HOME") {
@@ -471,7 +476,7 @@ pub fn detect_vercel_caches() -> Vec<CacheEntry> {
                 path: vercel_cache.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({
                     "type": "vercel_cache"
                 }),
@@ -482,7 +487,7 @@ pub fn detect_vercel_caches() -> Vec<CacheEntry> {
     entries
 }
 
-pub fn detect_cloudflare_caches() -> Vec<CacheEntry> {
+pub fn detect_cloudflare_caches(stale_days: Option<u32>) -> Vec<CacheEntry> {
     let mut entries = Vec::new();
 
     if let Ok(home) = std::env::var("HOME") {
@@ -499,7 +504,7 @@ pub fn detect_cloudflare_caches() -> Vec<CacheEntry> {
                 path: cf_cache.to_string_lossy().to_string(),
                 size_bytes: size,
                 last_used_at: mtime,
-                stale: false,
+                stale: is_stale(mtime, stale_days),
                 details: json!({
                     "type": "cloudflare_cache"
                 }),

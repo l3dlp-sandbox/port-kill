@@ -34,34 +34,34 @@ pub async fn clean_caches(
         entries.extend(detect_npx_caches(stale_days));
     }
     if include_js_pm {
-        entries.extend(detect_js_pm_caches());
+        entries.extend(detect_js_pm_caches(stale_days));
     }
     if include_hf {
-        entries.extend(detect_hf_caches());
+        entries.extend(detect_hf_caches(stale_days));
     }
     if include_torch {
-        entries.extend(detect_torch_caches());
+        entries.extend(detect_torch_caches(stale_days));
     }
     if include_vercel {
-        entries.extend(detect_vercel_caches());
+        entries.extend(detect_vercel_caches(stale_days));
     }
     if include_cloudflare {
-        entries.extend(detect_cloudflare_caches());
+        entries.extend(detect_cloudflare_caches(stale_days));
     }
 
     // Language-based detection (always runs unless only specialized flags were given)
     if !has_specialized_flags || lang != "auto" {
         if lang == "auto" || lang == "rust" {
-            entries.extend(detect_rust_caches(Path::new(&cwd)));
+            entries.extend(detect_rust_caches(Path::new(&cwd), stale_days));
         }
         if lang == "auto" || lang == "js" {
-            entries.extend(detect_js_caches(Path::new(&cwd)));
+            entries.extend(detect_js_caches(Path::new(&cwd), stale_days));
         }
         if lang == "auto" || lang == "py" {
-            entries.extend(detect_python_caches());
+            entries.extend(detect_python_caches(stale_days));
         }
         if lang == "auto" || lang == "java" {
-            entries.extend(detect_java_caches());
+            entries.extend(detect_java_caches(stale_days));
         }
     }
 

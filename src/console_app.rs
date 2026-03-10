@@ -321,7 +321,7 @@ impl ConsolePortKillApp {
             return Ok(());
         }
 
-        // Guard alias: --guard [--allow]
+        // Guard alias: --guard [--allow] (daemon is started in background below with monitor)
         if let Some(port) = self.args.guard {
             // Create a guard daemon on the single port
             let guard_ports = vec![port];
@@ -338,9 +338,8 @@ impl ConsolePortKillApp {
             daemon.set_process_interception(self.args.intercept_commands);
             let guard = Arc::new(daemon);
             self.port_guard = Some(guard.clone());
-            guard.start().await?;
             println!("🛡️  Guarding port {}. Press Ctrl+C to stop.", port);
-            // Fall through to normal loop so the app stays running
+            // Fall through to normal loop so the app stays running; guard is started in background below
         }
 
         if self.args.json {
@@ -368,6 +367,16 @@ impl ConsolePortKillApp {
 
         println!("💡 Press Ctrl+C to quit");
         println!("");
+
+        // Start Port Guard in background (--guard or --guard-mode)
+        if let Some(guard) = &self.port_guard {
+            let guard_clone = guard.clone();
+            tokio::spawn(async move {
+                if let Err(e) = guard_clone.start().await {
+                    error!("Port Guard daemon failed: {}", e);
+                }
+            });
+        }
 
         // Start process monitoring in background
         let monitor = self.process_monitor.clone();

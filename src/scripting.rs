@@ -4,7 +4,7 @@ use crate::{
 use anyhow::Result;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 
 /// Port guard configuration
@@ -19,10 +19,10 @@ pub struct ScriptEngine {
     process_monitor: Arc<Mutex<ProcessMonitor>>,
     file_monitor: FileMonitor,
     args: Args,
-    port_handlers: HashMap<u16, Vec<Box<dyn Fn(ProcessInfo) + Send + Sync>>>,
+    port_handlers: Arc<RwLock<HashMap<u16, Vec<Box<dyn Fn(ProcessInfo) + Send + Sync>>>>>,
     _last_processes: HashMap<u16, ProcessInfo>, // Track last known processes to detect changes
     port_guards: HashMap<u16, GuardConfig>,     // Port guard configurations
-    file_guards: HashMap<String, GuardConfig>,  // File guard configurations
+    file_guards: HashMap<String, GuardConfig>,  // File guard configurations (reserved for future file guarding)
 }
 
 impl ScriptEngine {
@@ -32,7 +32,7 @@ impl ScriptEngine {
             process_monitor,
             file_monitor: FileMonitor::new(),
             args,
-            port_handlers: HashMap::new(),
+            port_handlers: Arc::new(RwLock::new(HashMap::new())),
             _last_processes: HashMap::new(),
             port_guards: HashMap::new(),
             file_guards: HashMap::new(),
@@ -120,7 +120,7 @@ impl ScriptEngine {
         }
 
         // Start monitoring if we have any port handlers or guards
-        if !self.port_handlers.is_empty() || !self.port_guards.is_empty() {
+        if !self.port_handlers.read().unwrap().is_empty() || !self.port_guards.is_empty() {
             println!("📡 Starting port monitoring for script...");
             self.start_monitoring().await?;
         }
@@ -145,6 +145,8 @@ impl ScriptEngine {
                 });
 
                 self.port_handlers
+                    .write()
+                    .unwrap()
                     .entry(port)
                     .or_insert_with(Vec::new)
                     .push(handler);
@@ -528,9 +530,16 @@ impl ScriptEngine {
         println!("🔄 Starting continuous monitoring...");
         println!("💡 Press Ctrl+C to stop");
 
+        if !self.file_guards.is_empty() {
+            println!(
+                "📁 File guards configured ({} path(s)); file guarding not yet enforced in monitor.",
+                self.file_guards.len()
+            );
+        }
+
         // Start the monitoring loop
         let monitor = self.process_monitor.clone();
-        let watched_ports: Vec<u16> = self.port_handlers.keys().cloned().collect();
+        let watched_ports: Vec<u16> = self.port_handlers.read().unwrap().keys().cloned().collect();
         let guard_ports: Vec<u16> = self.port_guards.keys().cloned().collect();
         let all_monitored_ports: Vec<u16> = watched_ports
             .iter()
@@ -538,6 +547,7 @@ impl ScriptEngine {
             .cloned()
             .collect();
         let port_guards = self.port_guards.clone();
+        let port_handlers = Arc::clone(&self.port_handlers);
 
         tokio::spawn(async move {
             let mut last_processes: HashMap<u16, ProcessInfo> = HashMap::new();
@@ -561,13 +571,20 @@ impl ScriptEngine {
                                         false
                                     };
 
-                                if is_new {
-                                    println!(
-                                        "🟢 NEW: Process started on port {}: {} (PID: {})",
-                                        process_info.port, process_info.name, process_info.pid
-                                    );
+                                if is_new || is_changed {
+                                    if is_new {
+                                        println!(
+                                            "🟢 NEW: Process started on port {}: {} (PID: {})",
+                                            process_info.port, process_info.name, process_info.pid
+                                        );
+                                    } else {
+                                        println!(
+                                            "🔄 CHANGED: Process on port {}: {} (PID: {})",
+                                            process_info.port, process_info.name, process_info.pid
+                                        );
+                                    }
 
-                                    // Check if this port has a guard and handle accordingly
+                                    // Check if this port has a guard and handle accordingly (enforce for both new and changed)
                                     if let Some(guard_config) = port_guards.get(&port) {
                                         match guard_config {
                                             GuardConfig::KillAll => {
@@ -607,11 +624,15 @@ impl ScriptEngine {
                                             }
                                         }
                                     }
-                                } else if is_changed {
-                                    println!(
-                                        "🔄 CHANGED: Process on port {}: {} (PID: {})",
-                                        process_info.port, process_info.name, process_info.pid
-                                    );
+
+                                    // Invoke onPort handlers for this port
+                                    if let Ok(handlers) = port_handlers.read() {
+                                        if let Some(handlers) = handlers.get(&port) {
+                                            for h in handlers {
+                                                h(process_info.clone());
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // Update our tracking
