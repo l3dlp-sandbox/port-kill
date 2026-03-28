@@ -147,7 +147,7 @@ impl ProcessMonitor {
         // Use the optimized batch scanning approach instead of iterating one by one
         let args = crate::cli::Args {
             start_port: 2000,
-            end_port: 6000,
+            end_port: 9000,
             ports: None,
             ignore_ports: None,
             ignore_processes: None,
@@ -299,7 +299,7 @@ impl ProcessMonitor {
     pub fn scan_processes_multi(&self) -> HashMap<u16, Vec<ProcessInfo>> {
         let args = crate::cli::Args {
             start_port: 2000,
-            end_port: 6000,
+            end_port: 9000,
             ports: None,
             ignore_ports: None,
             ignore_processes: None,

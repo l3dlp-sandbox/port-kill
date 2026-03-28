@@ -28,7 +28,7 @@ pub struct Args {
     pub start_port: u16,
 
     /// Ending port for range scanning (inclusive)
-    #[arg(short, long, default_value = "6000")]
+    #[arg(short, long, default_value = "9000")]
     pub end_port: u16,
 
     /// Specific ports to monitor (comma-separated, supports ranges like 3000-3010, overrides start/end port range)
@@ -862,7 +862,7 @@ mod tests {
     fn create_test_args() -> Args {
         Args {
             start_port: 2000,
-            end_port: 6000,
+            end_port: 9000,
             ports: None,
             ignore_ports: None,
             ignore_processes: None,
@@ -1012,7 +1012,7 @@ mod tests {
         args.ignore_ports = Some(vec![5353, 5000]);
         args.ignore_processes = Some(vec!["Chrome".to_string(), "ControlCe".to_string()]);
 
-        assert_eq!(args.get_port_description(), "port range: 2000-6000 (ignoring ports: 5353, 5000, ignoring processes: Chrome, ControlCe)");
+        assert_eq!(args.get_port_description(), "port range: 2000-9000 (ignoring ports: 5353, 5000, ignoring processes: Chrome, ControlCe)");
     }
 
     #[test]

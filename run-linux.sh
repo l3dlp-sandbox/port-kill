@@ -4,8 +4,8 @@
 # This script runs the port-kill application on Linux with logging enabled
 # Usage: ./run-linux.sh [options]
 # Examples:
-#   ./run-linux.sh                           # Default: ports 2000-6000
-#   ./run-linux.sh --start-port 3000         # Ports 3000-6000
+#   ./run-linux.sh                           # Default: ports 2000-9000
+#   ./run-linux.sh --start-port 3000         # Ports 3000-9000
 #   ./run-linux.sh --end-port 8080           # Ports 2000-8080
 #   ./run-linux.sh --ports 3000,8000,8080    # Specific ports only
 #   ./run-linux.sh --console                 # Run in console mode

@@ -3,8 +3,8 @@ REM Port Kill - Windows Run Script
 REM This script runs the port-kill application on Windows with logging enabled
 REM Usage: run-windows.bat [options]
 REM Examples:
-REM   run-windows.bat                           REM Default: ports 2000-6000
-REM   run-windows.bat --start-port 3000         REM Ports 3000-6000
+REM   run-windows.bat                           REM Default: ports 2000-9000
+REM   run-windows.bat --start-port 3000         REM Ports 3000-9000
 REM   run-windows.bat --end-port 8080           REM Ports 2000-8080
 REM   run-windows.bat --ports 3000,8000,8080    REM Specific ports only
 REM   run-windows.bat --console                 REM Run in console mode

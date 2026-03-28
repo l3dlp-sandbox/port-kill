@@ -655,7 +655,7 @@ run-windows.bat
 - **Linux**: Use `./run-linux.sh`
 - **Windows**: Use `run-windows.bat`
 
-1. **Start the Application**: Run the appropriate script for your platform with default settings (ports 2000-6000)
+1. **Start the Application**: Run the appropriate script for your platform with default settings (ports 2000-9000)
 2. **Monitor Status**: Check the status bar for the process count indicator
 3. **Access Menu**: Click on the status bar icon to open the context menu
 4. **Kill Processes**: 

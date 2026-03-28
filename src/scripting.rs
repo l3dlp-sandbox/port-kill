@@ -693,7 +693,7 @@ mod tests {
             Args {
                 script_lang: "js".to_string(),
                 start_port: 2000,
-                end_port: 6000,
+                end_port: 9000,
                 ports: None,
                 ignore_ports: None,
                 ignore_processes: None,
@@ -804,7 +804,7 @@ mod tests {
             Args {
                 script_lang: "js".to_string(),
                 start_port: 2000,
-                end_port: 6000,
+                end_port: 9000,
                 ports: None,
                 ignore_ports: None,
                 ignore_processes: None,

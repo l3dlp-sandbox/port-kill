@@ -725,7 +725,7 @@ cargo build --release
 - **Linux**: Use `./run-linux.sh`
 - **Windows**: Use `run-windows.bat`
 
-1. **Start the Application**: Run the appropriate script for your platform with default settings (ports 2000-6000)
+1. **Start the Application**: Run the appropriate script for your platform with default settings (ports 2000-9000)
 2. **Monitor Status**: Check the status bar for the process count indicator
 3. **Access Menu**: Click on the status bar icon to open the context menu
 4. **Kill Processes**: 
@@ -1389,7 +1389,7 @@ lsof -ti :PORT -sTCP:LISTEN
 
 ### Port Range
 
-Monitors ports 2000-6000 (broad range covering common development server ports)
+Monitors ports 2000-9000 (broad range covering common development server ports)
 
 ## Dependencies
 
@@ -1458,7 +1458,7 @@ If you encounter permission errors when trying to kill processes:
 
 If a process is not being detected:
 
-1. Verify the process is listening on a port in the 2000-6000 range
+1. Verify the process is listening on a port in the 2000-9000 range
 2. Check if the process is using TCP (not UDP)
 3. Ensure the process is in LISTEN state
 

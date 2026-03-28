@@ -122,7 +122,7 @@ if [[ "$DASHBOARD_ONLY" == true ]] || [ -f "target/release/port-kill" ] || [ -f 
     echo ""
     echo "🔧 Common Usage Examples:"
     echo ""
-    echo "   # Default monitoring (ports 2000-6000):"
+    echo "   # Default monitoring (ports 2000-9000):"
     echo "   $RUN_SCRIPT"
     echo ""
     echo "   # Monitor specific ports:"
